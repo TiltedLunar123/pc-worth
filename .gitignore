@@ -1,0 +1,9 @@
+*.log
+*.tmp
+*.bak
+*.ps1xml
+.vscode/
+.idea/
+*.user
+Thumbs.db
+desktop.ini
