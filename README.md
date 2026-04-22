@@ -98,7 +98,7 @@ Each component is valued independently:
 - **Storage**: Per-GB pricing by media type
 
 Then adjustments:
-- **Age depreciation**: 30% year 1, 20% year 2, 15% year 3, 10%/year after (floor 15%)
+- **Age depreciation**: multiplicative on the remaining value (not the original). Year 1 retains 70%, year 2 multiplies that by 0.80, year 3 by 0.85, each year beyond by 0.90, floored at 15% of the original. So a 3-year-old system retains roughly 48% of its component total, not 35%.
 - **Battery penalty**: -$50 to -$150 for degraded batteries
 - **Portability bonus**: +10% for laptops
 
