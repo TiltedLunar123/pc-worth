@@ -52,11 +52,12 @@ function Get-OnlineEstimate {
         Write-Verbose "  Fetching eBay sold listings..."
         $response = Invoke-WebRequest -Uri $ebayUrl -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
 
-        # Parse prices from the response
+        # Parse prices from the response. Accept thousands separators so $1,250.00 is captured.
         $prices = @()
-        $priceMatches = [regex]::Matches($response.Content, '\$(\d{1,4}(?:\.\d{2})?)</span>')
+        $priceMatches = [regex]::Matches($response.Content, '\$(\d{1,4}(?:,\d{3})*(?:\.\d{2})?)</span>')
         foreach ($match in $priceMatches) {
-            $price = [double]$match.Groups[1].Value
+            $raw = $match.Groups[1].Value -replace ',', ''
+            $price = [double]$raw
             if ($price -ge 20 -and $price -le 5000) {
                 $prices += $price
             }
@@ -82,6 +83,12 @@ function Get-OnlineEstimate {
             $result.BlendedHigh = [math]::Round($blendedMid * 1.15, 0)
         } else {
             Write-Verbose "  Not enough sold listings found ($($prices.Count)), using offline estimate."
+        }
+    } catch [System.Net.WebException] {
+        if ($_.Exception.Status -eq [System.Net.WebExceptionStatus]::Timeout) {
+            Write-Verbose "  Online lookup timed out after 10s"
+        } else {
+            Write-Verbose "  Online lookup failed: $($_.Exception.Message)"
         }
     } catch {
         Write-Verbose "  Online lookup failed: $($_.Exception.Message)"
