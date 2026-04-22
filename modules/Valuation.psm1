@@ -239,4 +239,4 @@ function Get-PCValuation {
     return $valuation
 }
 
-Export-ModuleMember -Function Get-PCValuation
+Export-ModuleMember -Function Get-PCValuation, Get-CPUValue, Get-GPUValue, Get-RAMValue, Get-StorageValue, Get-AgeDepreciation, Get-BatteryPenalty
