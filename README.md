@@ -15,14 +15,14 @@ A PowerShell script that auto-detects your PC's hardware and estimates its curre
 
 ```powershell
 # Clone and run
-git clone https://github.com/hilge/pc-worth.git
+git clone https://github.com/TiltedLunar123/pc-worth.git
 cd pc-worth
 .\Get-PCWorth.ps1
 ```
 
 Or download and run directly:
 ```powershell
-irm https://raw.githubusercontent.com/hilge/pc-worth/main/Get-PCWorth.ps1 -OutFile Get-PCWorth.ps1
+irm https://raw.githubusercontent.com/TiltedLunar123/pc-worth/master/Get-PCWorth.ps1 -OutFile Get-PCWorth.ps1
 # Also grab the modules folder, then:
 .\Get-PCWorth.ps1
 ```
