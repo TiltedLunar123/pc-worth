@@ -23,7 +23,7 @@
     Runs with detailed progress output.
 
 .LINK
-    https://github.com/hilge/pc-worth
+    https://github.com/TiltedLunar123/pc-worth
 #>
 
 [CmdletBinding()]
