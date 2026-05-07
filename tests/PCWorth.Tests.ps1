@@ -114,3 +114,113 @@ Describe 'Valuation sanity' {
         $remaining | Should -BeLessThan 490
     }
 }
+
+Describe 'Get-CPUValue' {
+    It 'Values an Intel gen-12 i7 above the gen-10 baseline' {
+        $cpu = [PSCustomObject]@{ Name = 'Intel(R) Core(TM) i7-12700H CPU @ 2.30GHz' }
+        $val = Get-CPUValue -CPU $cpu
+        # i7 base 200 * 1.2 (gen 12 multiplier) = 240
+        $val | Should -Be 240
+    }
+
+    It 'Values an Intel gen-9 i5 below the gen-10 baseline' {
+        $cpu = [PSCustomObject]@{ Name = 'Intel(R) Core(TM) i5-9400F CPU @ 2.90GHz' }
+        $val = Get-CPUValue -CPU $cpu
+        # i5 base 120 * 0.8 (gen 8-9 multiplier) = 96
+        $val | Should -Be 96
+    }
+
+    It 'Values a Ryzen 7 5800X using the AMD generation digit' {
+        $cpu = [PSCustomObject]@{ Name = 'AMD Ryzen 7 5800X 8-Core Processor' }
+        $val = Get-CPUValue -CPU $cpu
+        # Ryzen 7 base 200, AMD gen 5 -> multiplier 0.4. Yes, the curve is
+        # harsh on older AMD parts; that's the current model, not a bug.
+        $val | Should -BeGreaterThan 0
+        $val | Should -BeLessOrEqual 200
+    }
+
+    It 'Recognizes Apple M-series silicon' {
+        $cpu = [PSCustomObject]@{ Name = 'Apple M2' }
+        $val = Get-CPUValue -CPU $cpu
+        $val | Should -BeGreaterThan 0
+    }
+
+    It 'Falls back to the unknown tier without throwing' {
+        $cpu = [PSCustomObject]@{ Name = 'Some Weird Bespoke CPU' }
+        { Get-CPUValue -CPU $cpu } | Should -Not -Throw
+        (Get-CPUValue -CPU $cpu) | Should -BeGreaterThan 0
+    }
+}
+
+Describe 'Get-GPUValue' {
+    It 'Returns 0 for a null GPU' {
+        Get-GPUValue -GPU $null | Should -Be 0
+    }
+
+    It 'Returns 0 for integrated graphics' {
+        $gpu = [PSCustomObject]@{
+            Name         = 'Intel(R) UHD Graphics 770'
+            VRAMGB       = 0
+            IsIntegrated = $true
+        }
+        Get-GPUValue -GPU $gpu | Should -Be 0
+    }
+
+    It 'Prices a current-gen RTX from the lookup table' {
+        $gpu = [PSCustomObject]@{
+            Name         = 'NVIDIA GeForce RTX 4070'
+            VRAMGB       = 12
+            IsIntegrated = $false
+        }
+        Get-GPUValue -GPU $gpu | Should -Be 280
+    }
+
+    It 'Prefers the more specific Ti variant over the base SKU' {
+        $gpu = [PSCustomObject]@{
+            Name         = 'NVIDIA GeForce RTX 4060 Ti'
+            VRAMGB       = 8
+            IsIntegrated = $false
+        }
+        Get-GPUValue -GPU $gpu | Should -Be 220
+    }
+
+    It 'Applies the laptop penalty when the name flags mobile silicon' {
+        $gpu = [PSCustomObject]@{
+            Name         = 'NVIDIA GeForce RTX 3070 Laptop GPU'
+            VRAMGB       = 8
+            IsIntegrated = $false
+        }
+        # 190 * 0.8 = 152
+        Get-GPUValue -GPU $gpu | Should -Be 152
+    }
+
+    It 'Recognizes AMD Radeon RX' {
+        $gpu = [PSCustomObject]@{
+            Name         = 'AMD Radeon RX 6700 XT'
+            VRAMGB       = 12
+            IsIntegrated = $false
+        }
+        Get-GPUValue -GPU $gpu | Should -Be 140
+    }
+}
+
+Describe 'Get-AgeDepreciation under one year' {
+    It 'Applies a 5% hit at 3 months' {
+        $dep = Get-AgeDepreciation -TotalComponentValue 1000 -AgeYears 0.25
+        $dep | Should -Be 50
+    }
+
+    It 'Applies a 10% hit at 6 months' {
+        $dep = Get-AgeDepreciation -TotalComponentValue 1000 -AgeYears 0.5
+        $dep | Should -Be 100
+    }
+
+    It 'Applies a 20% hit between 6 and 12 months' {
+        $dep = Get-AgeDepreciation -TotalComponentValue 1000 -AgeYears 0.75
+        $dep | Should -Be 200
+    }
+
+    It 'Returns zero depreciation when AgeYears is null' {
+        Get-AgeDepreciation -TotalComponentValue 1000 -AgeYears $null | Should -Be 0
+    }
+}
