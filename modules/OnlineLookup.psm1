@@ -70,7 +70,7 @@ function Get-OnlineEstimate {
             $trimmed = $sorted[$trimCount..($sorted.Count - $trimCount - 1)]
 
             $avgOnline = [math]::Round(($trimmed | Measure-Object -Average).Average, 0)
-            Write-Verbose "  Found $($prices.Count) sold listings, trimmed avg: $$avgOnline"
+            Write-Verbose "  Found $($prices.Count) sold listings, trimmed avg: `$$avgOnline"
 
             $result.Success = $true
             $result.OnlinePrice = $avgOnline

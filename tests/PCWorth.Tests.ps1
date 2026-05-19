@@ -224,3 +224,104 @@ Describe 'Get-AgeDepreciation under one year' {
         Get-AgeDepreciation -TotalComponentValue 1000 -AgeYears $null | Should -Be 0
     }
 }
+
+Describe 'Get-BatteryPenalty' {
+    It 'Returns zero for a healthy battery (>= 80%)' {
+        $battery = [PSCustomObject]@{ HealthPercent = 95 }
+        Get-BatteryPenalty -Battery $battery | Should -Be 0
+    }
+
+    It 'Returns -$50 for the 60-79% band' {
+        $battery = [PSCustomObject]@{ HealthPercent = 70 }
+        Get-BatteryPenalty -Battery $battery | Should -Be -50
+    }
+
+    It 'Returns -$100 for the 40-59% band' {
+        $battery = [PSCustomObject]@{ HealthPercent = 45 }
+        Get-BatteryPenalty -Battery $battery | Should -Be -100
+    }
+
+    It 'Returns -$150 for a heavily degraded battery (< 40%)' {
+        $battery = [PSCustomObject]@{ HealthPercent = 25 }
+        Get-BatteryPenalty -Battery $battery | Should -Be -150
+    }
+
+    It 'Returns zero when no battery object is passed (desktop)' {
+        Get-BatteryPenalty -Battery $null | Should -Be 0
+    }
+
+    It 'Returns zero when HealthPercent is missing or null' {
+        $battery = [PSCustomObject]@{ HealthPercent = $null }
+        Get-BatteryPenalty -Battery $battery | Should -Be 0
+    }
+}
+
+Describe 'Get-RAMValue' {
+    It 'Prices 16GB DDR5 at $3.00/GB' {
+        $ram = [PSCustomObject]@{ TotalGB = 16; Type = 'DDR5' }
+        Get-RAMValue -RAM $ram | Should -Be 48
+    }
+
+    It 'Prices 16GB DDR4 at $2.00/GB' {
+        $ram = [PSCustomObject]@{ TotalGB = 16; Type = 'DDR4' }
+        Get-RAMValue -RAM $ram | Should -Be 32
+    }
+
+    It 'Prices 8GB DDR3 at $1.00/GB' {
+        $ram = [PSCustomObject]@{ TotalGB = 8; Type = 'DDR3' }
+        Get-RAMValue -RAM $ram | Should -Be 8
+    }
+
+    It 'Prices 4GB DDR2 at $0.50/GB' {
+        $ram = [PSCustomObject]@{ TotalGB = 4; Type = 'DDR2' }
+        Get-RAMValue -RAM $ram | Should -Be 2
+    }
+
+    It 'Falls back to the default $1.50/GB for an unrecognized type' {
+        $ram = [PSCustomObject]@{ TotalGB = 16; Type = 'LPDDR5X' }
+        Get-RAMValue -RAM $ram | Should -Be 24
+    }
+}
+
+Describe 'Get-StorageValue' {
+    It 'Prices a 1TB NVMe SSD at $0.06/GB' {
+        $disks = @(
+            [PSCustomObject]@{ SizeGB = 1024; MediaType = 'NVMe SSD' }
+        )
+        Get-StorageValue -StorageList $disks | Should -Be 61
+    }
+
+    It 'Prices a 500GB SATA SSD at $0.04/GB' {
+        $disks = @(
+            [PSCustomObject]@{ SizeGB = 500; MediaType = 'SSD' }
+        )
+        Get-StorageValue -StorageList $disks | Should -Be 20
+    }
+
+    It 'Prices a 2TB HDD at $0.02/GB' {
+        $disks = @(
+            [PSCustomObject]@{ SizeGB = 2048; MediaType = 'HDD' }
+        )
+        Get-StorageValue -StorageList $disks | Should -Be 41
+    }
+
+    It 'Falls back to $0.03/GB for an unknown media type' {
+        $disks = @(
+            [PSCustomObject]@{ SizeGB = 256; MediaType = 'Unknown' }
+        )
+        Get-StorageValue -StorageList $disks | Should -Be 8
+    }
+
+    It 'Sums values across multiple disks' {
+        $disks = @(
+            [PSCustomObject]@{ SizeGB = 512; MediaType = 'NVMe SSD' }
+            [PSCustomObject]@{ SizeGB = 1024; MediaType = 'HDD' }
+        )
+        # 512 * 0.06 = 30.72 -> 31; 1024 * 0.02 = 20.48 -> 20; total 51
+        Get-StorageValue -StorageList $disks | Should -Be 51
+    }
+
+    It 'Returns zero for an empty storage list' {
+        Get-StorageValue -StorageList @() | Should -Be 0
+    }
+}
