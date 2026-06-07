@@ -325,3 +325,49 @@ Describe 'Get-StorageValue' {
         Get-StorageValue -StorageList @() | Should -Be 0
     }
 }
+
+Describe 'Get-PCValuation laptop portability bonus' {
+    BeforeAll {
+        # i7-12700H 240 + DDR5 16GB 48 + 512GB NVMe 31 = 319 component total.
+        # At two years old the depreciated total is 319 - 140 = 179.
+        $script:bonusSpecs = @{
+            Manufacturer = 'Acer'
+            Model        = 'Nitro'
+            AgeYears     = 2
+            CPU          = [PSCustomObject]@{ Name = 'Intel(R) Core(TM) i7-12700H CPU @ 2.30GHz' }
+            RAM          = [PSCustomObject]@{ TotalGB = 16; Type = 'DDR5' }
+            GPU          = $null
+            Storage      = @([PSCustomObject]@{ SizeGB = 512; MediaType = 'NVMe SSD' })
+            Battery      = $null
+        }
+    }
+
+    It 'Adds a portability bonus for a laptop' {
+        $specs = [PSCustomObject]($bonusSpecs + @{ SystemType = 'Laptop' })
+        $val = Get-PCValuation -Specs $specs
+        $val.PortabilityBonus | Should -Be 18   # round(179 * 0.10)
+        $val.MidEstimate | Should -Be 197        # 319 - 140 + 0 + 18
+    }
+
+    It 'Adds no portability bonus for a desktop' {
+        $specs = [PSCustomObject]($bonusSpecs + @{ SystemType = 'Desktop' })
+        $val = Get-PCValuation -Specs $specs
+        $val.PortabilityBonus | Should -Be 0
+        $val.MidEstimate | Should -Be 179        # 319 - 140, no bonus
+    }
+
+    It 'Takes the bonus on the depreciated total, not the raw component sum' {
+        # On the raw 319 total the bonus would round to 32; on the
+        # depreciated 179 it is 18. The 18 confirms which base is used.
+        $specs = [PSCustomObject]($bonusSpecs + @{ SystemType = 'Laptop' })
+        $val = Get-PCValuation -Specs $specs
+        $val.PortabilityBonus | Should -Be 18
+        $val.PortabilityBonus | Should -Not -Be 32
+    }
+
+    It 'The laptop mid estimate beats the desktop one by exactly the bonus' {
+        $lap  = Get-PCValuation -Specs ([PSCustomObject]($bonusSpecs + @{ SystemType = 'Laptop' }))
+        $desk = Get-PCValuation -Specs ([PSCustomObject]($bonusSpecs + @{ SystemType = 'Desktop' }))
+        ($lap.MidEstimate - $desk.MidEstimate) | Should -Be $lap.PortabilityBonus
+    }
+}
