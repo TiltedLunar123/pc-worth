@@ -325,3 +325,156 @@ Describe 'Get-StorageValue' {
         Get-StorageValue -StorageList @() | Should -Be 0
     }
 }
+
+Describe 'Get-PCValuation laptop portability bonus' {
+    BeforeAll {
+        # i7-12700H 240 + DDR5 16GB 48 + 512GB NVMe 31 = 319 component total.
+        # At two years old the depreciated total is 319 - 140 = 179.
+        $script:bonusSpecs = @{
+            Manufacturer = 'Acer'
+            Model        = 'Nitro'
+            AgeYears     = 2
+            CPU          = [PSCustomObject]@{ Name = 'Intel(R) Core(TM) i7-12700H CPU @ 2.30GHz' }
+            RAM          = [PSCustomObject]@{ TotalGB = 16; Type = 'DDR5' }
+            GPU          = $null
+            Storage      = @([PSCustomObject]@{ SizeGB = 512; MediaType = 'NVMe SSD' })
+            Battery      = $null
+        }
+    }
+
+    It 'Adds a portability bonus for a laptop' {
+        $specs = [PSCustomObject]($bonusSpecs + @{ SystemType = 'Laptop' })
+        $val = Get-PCValuation -Specs $specs
+        $val.PortabilityBonus | Should -Be 18   # round(179 * 0.10)
+        $val.MidEstimate | Should -Be 197        # 319 - 140 + 0 + 18
+    }
+
+    It 'Adds no portability bonus for a desktop' {
+        $specs = [PSCustomObject]($bonusSpecs + @{ SystemType = 'Desktop' })
+        $val = Get-PCValuation -Specs $specs
+        $val.PortabilityBonus | Should -Be 0
+        $val.MidEstimate | Should -Be 179        # 319 - 140, no bonus
+    }
+
+    It 'Takes the bonus on the depreciated total, not the raw component sum' {
+        # On the raw 319 total the bonus would round to 32; on the
+        # depreciated 179 it is 18. The 18 confirms which base is used.
+        $specs = [PSCustomObject]($bonusSpecs + @{ SystemType = 'Laptop' })
+        $val = Get-PCValuation -Specs $specs
+        $val.PortabilityBonus | Should -Be 18
+        $val.PortabilityBonus | Should -Not -Be 32
+    }
+
+    It 'The laptop mid estimate beats the desktop one by exactly the bonus' {
+        $lap  = Get-PCValuation -Specs ([PSCustomObject]($bonusSpecs + @{ SystemType = 'Laptop' }))
+        $desk = Get-PCValuation -Specs ([PSCustomObject]($bonusSpecs + @{ SystemType = 'Desktop' }))
+        ($lap.MidEstimate - $desk.MidEstimate) | Should -Be $lap.PortabilityBonus
+    }
+}
+
+Describe 'Get-PCValuation battery penalty integration' {
+    BeforeAll {
+        # A higher-value laptop so the penalty does not collide with the
+        # $25 floor: i7 240 + RTX 4070 280 + DDR5 48 + 1TB NVMe 61 = 629.
+        function New-BatterySpecs {
+            param([int]$Health)
+            [PSCustomObject]@{
+                Manufacturer = 'Acer'
+                Model        = 'Predator'
+                SystemType   = 'Laptop'
+                AgeYears     = 1
+                CPU          = [PSCustomObject]@{ Name = 'Intel(R) Core(TM) i7-12700H CPU @ 2.30GHz' }
+                RAM          = [PSCustomObject]@{ TotalGB = 16; Type = 'DDR5' }
+                GPU          = [PSCustomObject]@{ Name = 'NVIDIA GeForce RTX 4070'; VRAMGB = 12; IsIntegrated = $false }
+                Storage      = @([PSCustomObject]@{ SizeGB = 1024; MediaType = 'NVMe SSD' })
+                Battery      = [PSCustomObject]@{ HealthPercent = $Health }
+            }
+        }
+    }
+
+    It 'Subtracts the 40-59% band penalty from the mid estimate' {
+        $val = Get-PCValuation -Specs (New-BatterySpecs -Health 45)
+        $val.BatteryPenalty | Should -Be -100
+        $val.MidEstimate | Should -Be 384   # 629 - 189 - 100 + 44
+    }
+
+    It 'A degraded battery lands below an otherwise identical healthy one' {
+        $degraded = Get-PCValuation -Specs (New-BatterySpecs -Health 45)
+        $healthy  = Get-PCValuation -Specs (New-BatterySpecs -Health 95)
+        $healthy.BatteryPenalty | Should -Be 0
+        $healthy.MidEstimate | Should -Be 484
+        ($healthy.MidEstimate - $degraded.MidEstimate) | Should -Be 100
+    }
+}
+
+Describe 'Get-AgeDepreciation past year three' {
+    It 'Runs the per-year loop once at four years' {
+        # 0.70 * 0.80 * 0.85 * 0.90 = 0.4284 remaining
+        Get-AgeDepreciation -TotalComponentValue 1000 -AgeYears 4 | Should -Be 572
+    }
+
+    It 'Runs the per-year loop twice at five years' {
+        # 0.4284 * 0.90 = 0.38556 remaining
+        Get-AgeDepreciation -TotalComponentValue 1000 -AgeYears 5 | Should -Be 614
+    }
+
+    It 'Depreciation keeps growing year over year past three' {
+        $three = Get-AgeDepreciation -TotalComponentValue 1000 -AgeYears 3
+        $four  = Get-AgeDepreciation -TotalComponentValue 1000 -AgeYears 4
+        $five  = Get-AgeDepreciation -TotalComponentValue 1000 -AgeYears 5
+        $four | Should -BeGreaterThan $three
+        $five | Should -BeGreaterThan $four
+    }
+
+    It 'Bottoms out at the 15% floor for a very old system' {
+        # By the floor, value retained is 15%, so depreciation is 85%.
+        Get-AgeDepreciation -TotalComponentValue 1000 -AgeYears 20 | Should -Be 850
+    }
+
+    It 'Stays on the floor for an absurdly old system' {
+        Get-AgeDepreciation -TotalComponentValue 1000 -AgeYears 40 | Should -Be 850
+    }
+}
+
+Describe 'Get-CPUValue uncovered tiers' {
+    It 'Prices a Core Ultra 7 with the newest-gen multiplier' {
+        $cpu = [PSCustomObject]@{ Name = 'Intel(R) Core(TM) Ultra 7 155H' }
+        # base 250 * 1.4 (Ultra is treated as the top gen band) = 350
+        Get-CPUValue -CPU $cpu | Should -Be 350
+    }
+
+    It 'Prices a Core Ultra 9 above the Ultra 7' {
+        $cpu = [PSCustomObject]@{ Name = 'Intel(R) Core(TM) Ultra 9 285K' }
+        # base 350 * 1.4 = 490
+        Get-CPUValue -CPU $cpu | Should -Be 490
+    }
+
+    It 'Prices a Core Ultra 5 below the Ultra 7' {
+        $cpu = [PSCustomObject]@{ Name = 'Intel(R) Core(TM) Ultra 5 125H' }
+        # base 160 * 1.4 = 224
+        Get-CPUValue -CPU $cpu | Should -Be 224
+    }
+
+    It 'Prices a Xeon at the workstation tier with no gen bump' {
+        $cpu = [PSCustomObject]@{ Name = 'Intel(R) Xeon(R) W-2295' }
+        # base 250, no detectable gen so the 0.7 fallback multiplier -> 175
+        Get-CPUValue -CPU $cpu | Should -Be 175
+    }
+
+    It 'Prices a Pentium at the budget tier' {
+        $cpu = [PSCustomObject]@{ Name = 'Intel(R) Pentium(R) Gold G7400' }
+        # base 30 * 0.7 = 21
+        Get-CPUValue -CPU $cpu | Should -Be 21
+    }
+}
+
+Describe 'Get-GPUValue unknown discrete fallback' {
+    It 'Prices a discrete card with no table match at the $50 default' {
+        $gpu = [PSCustomObject]@{
+            Name         = 'NVIDIA GeForce RTX 9999'
+            VRAMGB       = 16
+            IsIntegrated = $false
+        }
+        Get-GPUValue -GPU $gpu | Should -Be 50
+    }
+}
