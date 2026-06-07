@@ -371,3 +371,38 @@ Describe 'Get-PCValuation laptop portability bonus' {
         ($lap.MidEstimate - $desk.MidEstimate) | Should -Be $lap.PortabilityBonus
     }
 }
+
+Describe 'Get-PCValuation battery penalty integration' {
+    BeforeAll {
+        # A higher-value laptop so the penalty does not collide with the
+        # $25 floor: i7 240 + RTX 4070 280 + DDR5 48 + 1TB NVMe 61 = 629.
+        function New-BatterySpecs {
+            param([int]$Health)
+            [PSCustomObject]@{
+                Manufacturer = 'Acer'
+                Model        = 'Predator'
+                SystemType   = 'Laptop'
+                AgeYears     = 1
+                CPU          = [PSCustomObject]@{ Name = 'Intel(R) Core(TM) i7-12700H CPU @ 2.30GHz' }
+                RAM          = [PSCustomObject]@{ TotalGB = 16; Type = 'DDR5' }
+                GPU          = [PSCustomObject]@{ Name = 'NVIDIA GeForce RTX 4070'; VRAMGB = 12; IsIntegrated = $false }
+                Storage      = @([PSCustomObject]@{ SizeGB = 1024; MediaType = 'NVMe SSD' })
+                Battery      = [PSCustomObject]@{ HealthPercent = $Health }
+            }
+        }
+    }
+
+    It 'Subtracts the 40-59% band penalty from the mid estimate' {
+        $val = Get-PCValuation -Specs (New-BatterySpecs -Health 45)
+        $val.BatteryPenalty | Should -Be -100
+        $val.MidEstimate | Should -Be 384   # 629 - 189 - 100 + 44
+    }
+
+    It 'A degraded battery lands below an otherwise identical healthy one' {
+        $degraded = Get-PCValuation -Specs (New-BatterySpecs -Health 45)
+        $healthy  = Get-PCValuation -Specs (New-BatterySpecs -Health 95)
+        $healthy.BatteryPenalty | Should -Be 0
+        $healthy.MidEstimate | Should -Be 484
+        ($healthy.MidEstimate - $degraded.MidEstimate) | Should -Be 100
+    }
+}
