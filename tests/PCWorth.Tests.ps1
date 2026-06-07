@@ -435,3 +435,46 @@ Describe 'Get-AgeDepreciation past year three' {
         Get-AgeDepreciation -TotalComponentValue 1000 -AgeYears 40 | Should -Be 850
     }
 }
+
+Describe 'Get-CPUValue uncovered tiers' {
+    It 'Prices a Core Ultra 7 with the newest-gen multiplier' {
+        $cpu = [PSCustomObject]@{ Name = 'Intel(R) Core(TM) Ultra 7 155H' }
+        # base 250 * 1.4 (Ultra is treated as the top gen band) = 350
+        Get-CPUValue -CPU $cpu | Should -Be 350
+    }
+
+    It 'Prices a Core Ultra 9 above the Ultra 7' {
+        $cpu = [PSCustomObject]@{ Name = 'Intel(R) Core(TM) Ultra 9 285K' }
+        # base 350 * 1.4 = 490
+        Get-CPUValue -CPU $cpu | Should -Be 490
+    }
+
+    It 'Prices a Core Ultra 5 below the Ultra 7' {
+        $cpu = [PSCustomObject]@{ Name = 'Intel(R) Core(TM) Ultra 5 125H' }
+        # base 160 * 1.4 = 224
+        Get-CPUValue -CPU $cpu | Should -Be 224
+    }
+
+    It 'Prices a Xeon at the workstation tier with no gen bump' {
+        $cpu = [PSCustomObject]@{ Name = 'Intel(R) Xeon(R) W-2295' }
+        # base 250, no detectable gen so the 0.7 fallback multiplier -> 175
+        Get-CPUValue -CPU $cpu | Should -Be 175
+    }
+
+    It 'Prices a Pentium at the budget tier' {
+        $cpu = [PSCustomObject]@{ Name = 'Intel(R) Pentium(R) Gold G7400' }
+        # base 30 * 0.7 = 21
+        Get-CPUValue -CPU $cpu | Should -Be 21
+    }
+}
+
+Describe 'Get-GPUValue unknown discrete fallback' {
+    It 'Prices a discrete card with no table match at the $50 default' {
+        $gpu = [PSCustomObject]@{
+            Name         = 'NVIDIA GeForce RTX 9999'
+            VRAMGB       = 16
+            IsIntegrated = $false
+        }
+        Get-GPUValue -GPU $gpu | Should -Be 50
+    }
+}
