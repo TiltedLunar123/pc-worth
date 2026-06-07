@@ -406,3 +406,32 @@ Describe 'Get-PCValuation battery penalty integration' {
         ($healthy.MidEstimate - $degraded.MidEstimate) | Should -Be 100
     }
 }
+
+Describe 'Get-AgeDepreciation past year three' {
+    It 'Runs the per-year loop once at four years' {
+        # 0.70 * 0.80 * 0.85 * 0.90 = 0.4284 remaining
+        Get-AgeDepreciation -TotalComponentValue 1000 -AgeYears 4 | Should -Be 572
+    }
+
+    It 'Runs the per-year loop twice at five years' {
+        # 0.4284 * 0.90 = 0.38556 remaining
+        Get-AgeDepreciation -TotalComponentValue 1000 -AgeYears 5 | Should -Be 614
+    }
+
+    It 'Depreciation keeps growing year over year past three' {
+        $three = Get-AgeDepreciation -TotalComponentValue 1000 -AgeYears 3
+        $four  = Get-AgeDepreciation -TotalComponentValue 1000 -AgeYears 4
+        $five  = Get-AgeDepreciation -TotalComponentValue 1000 -AgeYears 5
+        $four | Should -BeGreaterThan $three
+        $five | Should -BeGreaterThan $four
+    }
+
+    It 'Bottoms out at the 15% floor for a very old system' {
+        # By the floor, value retained is 15%, so depreciation is 85%.
+        Get-AgeDepreciation -TotalComponentValue 1000 -AgeYears 20 | Should -Be 850
+    }
+
+    It 'Stays on the floor for an absurdly old system' {
+        Get-AgeDepreciation -TotalComponentValue 1000 -AgeYears 40 | Should -Be 850
+    }
+}
