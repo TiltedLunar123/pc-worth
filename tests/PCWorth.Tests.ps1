@@ -478,3 +478,91 @@ Describe 'Get-GPUValue unknown discrete fallback' {
         Get-GPUValue -GPU $gpu | Should -Be 50
     }
 }
+
+Describe 'Get-OnlineEstimate' {
+    BeforeAll {
+        # Specs with placeholder manufacturer/model that the query builder
+        # is supposed to drop, plus two disks so the largest-disk pick matters.
+        function New-LookupSpecs {
+            [PSCustomObject]@{
+                Manufacturer = 'System manufacturer'
+                Model        = 'To Be Filled By O.E.M.'
+                SystemType   = 'Laptop'
+                CPU          = [PSCustomObject]@{ Name = 'Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz' }
+                RAM          = [PSCustomObject]@{ TotalGB = 16 }
+                Storage      = @(
+                    [PSCustomObject]@{ SizeGB = 256;  MediaType = 'SSD' }
+                    [PSCustomObject]@{ SizeGB = 1000; MediaType = 'HDD' }
+                )
+            }
+        }
+
+        $script:offline = [PSCustomObject]@{
+            LowEstimate = 850
+            MidEstimate = 1000
+            HighEstimate = 1150
+        }
+
+        # Five span-wrapped prices. After the top/bottom 20% trim (1 each)
+        # the kept set is 400/500/600, so the trimmed average is 500.
+        $script:goodHtml = '<span>$300.00</span> <span>$400.00</span> ' +
+                           '<span>$500.00</span> <span>$600.00</span> <span>$700.00</span>'
+    }
+
+    It 'Builds a query that drops placeholder make/model and folds in CPU, RAM, and the largest disk' {
+        Mock Invoke-WebRequest -ModuleName OnlineLookup { [PSCustomObject]@{ Content = '' } }
+        $r = Get-OnlineEstimate -Specs (New-LookupSpecs) -OfflineValuation $script:offline
+
+        $r.SearchQuery | Should -Not -Match 'System manufacturer'
+        $r.SearchQuery | Should -Not -Match 'To Be Filled'
+        $r.SearchQuery | Should -Match 'Intel Core i7-9750H'
+        $r.SearchQuery | Should -Match '16GB'
+        $r.SearchQuery | Should -Match '1000GB HDD'   # largest disk wins over the 256 SSD
+        $r.SearchQuery | Should -Match 'used Laptop'
+    }
+
+    It 'Marks success and blends 60/40 when enough sold listings come back' {
+        Mock Invoke-WebRequest -ModuleName OnlineLookup { [PSCustomObject]@{ Content = $script:goodHtml } }
+        $r = Get-OnlineEstimate -Specs (New-LookupSpecs) -OfflineValuation $script:offline
+
+        $r.Success     | Should -BeTrue
+        $r.OnlinePrice | Should -Be 500              # trimmed average
+        $r.Source      | Should -Match 'eBay'
+        # blendedMid = round(500*0.6 + 1000*0.4) = 700, low/high are +/-15%
+        $r.BlendedMid  | Should -Be 700
+        $r.BlendedLow  | Should -Be 595
+        $r.BlendedHigh | Should -Be 805
+    }
+
+    It 'Falls back to the offline estimate when fewer than three listings are found' {
+        Mock Invoke-WebRequest -ModuleName OnlineLookup {
+            [PSCustomObject]@{ Content = '<span>$300.00</span> <span>$400.00</span>' }
+        }
+        $r = Get-OnlineEstimate -Specs (New-LookupSpecs) -OfflineValuation $script:offline
+
+        $r.Success     | Should -BeFalse
+        $r.OnlinePrice | Should -BeNullOrEmpty
+        $r.BlendedLow  | Should -Be $script:offline.LowEstimate
+        $r.BlendedMid  | Should -Be $script:offline.MidEstimate
+        $r.BlendedHigh | Should -Be $script:offline.HighEstimate
+    }
+
+    It 'Ignores prices outside the $20-$5000 sanity band' {
+        # Only two prices land inside the band, so this stays an offline fallback.
+        Mock Invoke-WebRequest -ModuleName OnlineLookup {
+            [PSCustomObject]@{ Content = '<span>$5.00</span> <span>$400.00</span> <span>$500.00</span> <span>$9000.00</span>' }
+        }
+        $r = Get-OnlineEstimate -Specs (New-LookupSpecs) -OfflineValuation $script:offline
+        $r.Success    | Should -BeFalse
+        $r.BlendedMid | Should -Be $script:offline.MidEstimate
+    }
+
+    It 'Returns the offline estimate instead of throwing when the request fails' {
+        Mock Invoke-WebRequest -ModuleName OnlineLookup { throw 'network down' }
+        { Get-OnlineEstimate -Specs (New-LookupSpecs) -OfflineValuation $script:offline } | Should -Not -Throw
+
+        $r = Get-OnlineEstimate -Specs (New-LookupSpecs) -OfflineValuation $script:offline
+        $r.Success     | Should -BeFalse
+        $r.BlendedMid  | Should -Be $script:offline.MidEstimate
+    }
+}
