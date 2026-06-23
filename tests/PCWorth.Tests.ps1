@@ -5,6 +5,7 @@ BeforeAll {
     Import-Module (Join-Path $script:repoRoot 'modules\HardwareDetection.psm1') -Force
     Import-Module (Join-Path $script:repoRoot 'modules\OnlineLookup.psm1')       -Force
     Import-Module (Join-Path $script:repoRoot 'modules\Valuation.psm1')          -Force
+    Import-Module (Join-Path $script:repoRoot 'modules\ReportFormatter.psm1')    -Force
 }
 
 Describe 'Get-SafeCimInstance' {
@@ -564,5 +565,129 @@ Describe 'Get-OnlineEstimate' {
         $r = Get-OnlineEstimate -Specs (New-LookupSpecs) -OfflineValuation $script:offline
         $r.Success     | Should -BeFalse
         $r.BlendedMid  | Should -Be $script:offline.MidEstimate
+    }
+}
+
+Describe 'Write-PCReport' {
+    BeforeAll {
+        # A complete, realistic specs object. Tests clone-and-tweak the field
+        # they care about so each case stays readable.
+        function New-ReportSpecs {
+            [PSCustomObject]@{
+                Manufacturer    = 'Dell Inc.'
+                Model           = 'XPS 15 9520'
+                SystemType      = 'Laptop'
+                AgeYears        = 2
+                ManufactureDate = '2024-03'
+                CPU             = [PSCustomObject]@{ Name = 'Intel Core i7-12700H'; Cores = 14; Threads = 20; MaxClockGHz = 4.7 }
+                GPU             = [PSCustomObject]@{ Name = 'NVIDIA GeForce RTX 3050'; VRAMGB = 4; IsIntegrated = $false }
+                RAM             = [PSCustomObject]@{ TotalGB = 16; Type = 'DDR5'; SpeedMHz = 4800 }
+                Storage         = @([PSCustomObject]@{ SizeGB = 512; MediaType = 'SSD'; Health = 'Healthy' })
+                Battery         = [PSCustomObject]@{ HealthPercent = 88; ChargePercent = 100 }
+                DisplayRes      = '3456x2160'
+                OS              = 'Windows 11 Pro'
+            }
+        }
+
+        function New-ReportValuation {
+            [PSCustomObject]@{
+                CPUValue         = 300
+                GPUValue         = 150
+                RAMValue         = 60
+                StorageValue     = 40
+                ComponentTotal   = 550
+                Depreciation     = 200
+                BatteryPenalty   = 0
+                PortabilityBonus = 35
+                LowEstimate      = 850
+                MidEstimate      = 1000
+                HighEstimate     = 1150
+            }
+        }
+
+        # Render the report and return everything written to the host as one string.
+        function Get-ReportText {
+            param($Specs, $Valuation, $OnlineResult)
+            (Write-PCReport -Specs $Specs -Valuation $Valuation -OnlineResult $OnlineResult 6>&1 | Out-String)
+        }
+    }
+
+    It 'Renders the header and the main section labels' {
+        $text = Get-ReportText -Specs (New-ReportSpecs) -Valuation (New-ReportValuation) -OnlineResult $null
+        $text | Should -Match 'PC WORTH ESTIMATOR'
+        $text | Should -Match 'HARDWARE SPECS'
+        $text | Should -Match 'VALUE BREAKDOWN'
+        $text | Should -Match 'ESTIMATED VALUE'
+    }
+
+    It 'Shows the real make and model when they are not placeholders' {
+        $text = Get-ReportText -Specs (New-ReportSpecs) -Valuation (New-ReportValuation) -OnlineResult $null
+        $text | Should -Match 'Dell Inc\. XPS 15 9520'
+    }
+
+    It 'Collapses a placeholder system name to "Custom PC"' {
+        $s = New-ReportSpecs
+        $s.Manufacturer = 'System manufacturer'
+        $s.Model        = 'System Product Name'
+        $text = Get-ReportText -Specs $s -Valuation (New-ReportValuation) -OnlineResult $null
+        $text | Should -Match 'Custom PC'
+        $text | Should -Not -Match 'System Product Name'
+    }
+
+    It 'Formats the age line by bucket' {
+        $s = New-ReportSpecs; $s.AgeYears = 4
+        (Get-ReportText -Specs $s -Valuation (New-ReportValuation) -OnlineResult $null) | Should -Match '~4 years'
+
+        $s2 = New-ReportSpecs; $s2.AgeYears = 0.5
+        (Get-ReportText -Specs $s2 -Valuation (New-ReportValuation) -OnlineResult $null) | Should -Match '< 1 year'
+    }
+
+    It 'Prints the offline estimate when there is no online result' {
+        $text = Get-ReportText -Specs (New-ReportSpecs) -Valuation (New-ReportValuation) -OnlineResult $null
+        $text | Should -Match '\$850 - \$1150'
+    }
+
+    It 'Overrides the printed range with the blended values on a successful lookup' {
+        $online = [PSCustomObject]@{
+            Success     = $true
+            OnlinePrice = 500
+            Source      = 'eBay Sold Listings (5 results)'
+            BlendedLow  = 595
+            BlendedMid  = 700
+            BlendedHigh = 805
+        }
+        $text = Get-ReportText -Specs (New-ReportSpecs) -Valuation (New-ReportValuation) -OnlineResult $online
+        $text | Should -Match '\$595 - \$805'
+        $text | Should -Match 'Online check'
+        $text | Should -Match '~\$500'
+        $text | Should -Match 'eBay Sold Listings'
+    }
+
+    It 'Notes when the online lookup found nothing' {
+        $online = [PSCustomObject]@{
+            Success     = $false
+            BlendedLow  = 850
+            BlendedMid  = 1000
+            BlendedHigh = 1150
+        }
+        $text = Get-ReportText -Specs (New-ReportSpecs) -Valuation (New-ReportValuation) -OnlineResult $online
+        $text | Should -Match 'No data found'
+        $text | Should -Match '\$850 - \$1150'
+    }
+
+    It 'Shows a battery penalty row only when the penalty is non-zero' {
+        $v = New-ReportValuation; $v.BatteryPenalty = -40
+        (Get-ReportText -Specs (New-ReportSpecs) -Valuation $v -OnlineResult $null) | Should -Match 'Battery penalty'
+
+        $v0 = New-ReportValuation; $v0.BatteryPenalty = 0
+        (Get-ReportText -Specs (New-ReportSpecs) -Valuation $v0 -OnlineResult $null) | Should -Not -Match 'Battery penalty'
+    }
+
+    It 'Runs without throwing when optional sections are absent' {
+        $s = New-ReportSpecs
+        $s.GPU      = $null
+        $s.Battery  = $null
+        $s.AgeYears = 0
+        { Write-PCReport -Specs $s -Valuation (New-ReportValuation) -OnlineResult $null 6>&1 | Out-Null } | Should -Not -Throw
     }
 }
