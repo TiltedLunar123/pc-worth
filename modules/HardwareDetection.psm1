@@ -13,6 +13,19 @@ function Get-SafeCimInstance {
     }
 }
 
+function Get-GPUIntegratedFlag {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Name)
+
+    # Discrete Arc cards are named "Intel(R) Arc(TM) A770 Graphics" and would
+    # otherwise trip the Intel integrated pattern below. The integrated Arc part
+    # shipped with Core Ultra carries no A/B model number, so that is what
+    # separates the two.
+    if ($Name -match 'Arc\b.*\b[AB]\d{3}\b') { return $false }
+
+    return [bool]($Name -match 'Intel.*(?:UHD|HD|Iris|Graphics)|AMD.*Radeon.*Graphics$|Vega.*Graphics')
+}
+
 function Get-UnknownCpu {
     [PSCustomObject]@{
         Name         = "Unknown"
@@ -130,7 +143,7 @@ function Get-HardwareSpecs {
         }
 
         $gpuName = if ($gpu.Name) { $gpu.Name.Trim() } else { "Unknown" }
-        $isIntegrated = $gpuName -match 'Intel.*(?:UHD|HD|Iris|Graphics)|AMD.*Radeon.*Graphics$|Vega.*Graphics'
+        $isIntegrated = Get-GPUIntegratedFlag -Name $gpuName
         $gpuList += [PSCustomObject]@{
             Name                        = $gpuName
             VRAMGB                      = $vramGB
@@ -287,4 +300,4 @@ function Get-HardwareSpecs {
     return $specs
 }
 
-Export-ModuleMember -Function Get-HardwareSpecs, Get-SafeCimInstance, Get-UnknownCpu, Get-UnknownRam
+Export-ModuleMember -Function Get-HardwareSpecs, Get-SafeCimInstance, Get-UnknownCpu, Get-UnknownRam, Get-GPUIntegratedFlag

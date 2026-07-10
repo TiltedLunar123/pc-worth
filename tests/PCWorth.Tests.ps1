@@ -517,6 +517,54 @@ Describe 'Get-GPUValue unknown discrete fallback' {
     }
 }
 
+Describe 'Intel Arc discrete detection' {
+    # The name every discrete Arc card reports ends in "Graphics", which is
+    # also what the Intel integrated pattern looks for. Only the A/B model
+    # number tells them apart.
+    $discreteNames = @(
+        'Intel(R) Arc(TM) A770 Graphics'
+        'Intel(R) Arc(TM) A750 Graphics'
+        'Intel(R) Arc(TM) A380 Graphics'
+        'Intel(R) Arc(TM) B580 Graphics'
+    )
+    $integratedNames = @(
+        'Intel(R) Arc(TM) Graphics'      # Core Ultra / Meteor Lake iGPU
+        'Intel(R) UHD Graphics 770'
+        'Intel(R) Iris(R) Xe Graphics'
+    )
+
+    It 'Flags <_> as discrete' -ForEach $discreteNames {
+        Get-GPUIntegratedFlag -Name $_ | Should -BeFalse
+    }
+
+    It 'Flags <_> as integrated' -ForEach $integratedNames {
+        Get-GPUIntegratedFlag -Name $_ | Should -BeTrue
+    }
+
+    It 'Prices an A770 off the table instead of zeroing it' {
+        $gpu = [PSCustomObject]@{
+            Name         = 'Intel(R) Arc(TM) A770 Graphics'
+            VRAMGB       = 16
+            IsIntegrated = (Get-GPUIntegratedFlag -Name 'Intel(R) Arc(TM) A770 Graphics')
+        }
+        Get-GPUValue -GPU $gpu | Should -Be 180
+    }
+
+    It 'Still zeroes the integrated Arc part' {
+        $gpu = [PSCustomObject]@{
+            Name         = 'Intel(R) Arc(TM) Graphics'
+            VRAMGB       = 0
+            IsIntegrated = (Get-GPUIntegratedFlag -Name 'Intel(R) Arc(TM) Graphics')
+        }
+        Get-GPUValue -GPU $gpu | Should -Be 0
+    }
+
+    It 'Prices a discrete Arc above the unknown-card default' {
+        $arc = [PSCustomObject]@{ Name = 'Intel(R) Arc(TM) B580 Graphics'; VRAMGB = 12; IsIntegrated = $false }
+        Get-GPUValue -GPU $arc | Should -BeGreaterThan 50
+    }
+}
+
 Describe 'Get-OnlineEstimate' {
     BeforeAll {
         # Specs with placeholder manufacturer/model that the query builder

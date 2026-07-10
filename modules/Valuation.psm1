@@ -104,6 +104,12 @@ function Get-GPUValue {
         'RX\s*6700\s*XT' = 140; 'RX\s*6600\s*XT' = 110; 'RX\s*6600' = 90; 'RX\s*6500\s*XT' = 50
         # AMD RX 5000
         'RX\s*5700\s*XT' = 100; 'RX\s*5700' = 80; 'RX\s*5600\s*XT' = 70; 'RX\s*5500\s*XT' = 45
+        # Intel Arc (discrete only; the integrated part carries no model number).
+        # The reported name is "Intel(R) Arc(TM) A770 Graphics", so the branding
+        # suffix has to be skipped rather than matched as whitespace.
+        'ARC\b.*\bB580\b' = 220; 'ARC\b.*\bB570\b' = 180
+        'ARC\b.*\bA770\b' = 180; 'ARC\b.*\bA750\b' = 140
+        'ARC\b.*\bA580\b' = 100; 'ARC\b.*\bA380\b' = 70
         # Laptop GPUs (generally worth less - use mobile modifier later)
     }
 
