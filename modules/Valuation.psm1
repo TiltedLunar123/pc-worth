@@ -22,7 +22,7 @@ function Get-CPUValue {
     # counts 1-14, so the series digit is mapped onto the Intel generation it
     # launched against before the shared multiplier below sees it.
     $amdGen = 0
-    if ($name -match 'RYZEN\s*\d\s*(\d)\d{3}') {
+    if ($name -match 'RYZEN\s*(?:\d\s+)?(?:PRO\s+)?(\d)\d{3}') {
         $amdGen = switch ([int]$Matches[1]) {
             1 { 7 }    # Zen, 2017
             2 { 8 }    # Zen+, 2018

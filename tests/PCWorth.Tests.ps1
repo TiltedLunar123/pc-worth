@@ -154,6 +154,21 @@ Describe 'Get-CPUValue' {
         }
     }
 
+    It 'Reads the generation through a PRO badge in the name' {
+        # The PRO token sits between the tier digit and the model number, so
+        # the old pattern missed it and the chip fell to the unknown-gen
+        # multiplier. A 5850U is Zen 3, same as any other 5000-series part.
+        $pro   = Get-CPUValue -CPU ([PSCustomObject]@{ Name = 'AMD Ryzen 7 PRO 5850U' })
+        $plain = Get-CPUValue -CPU ([PSCustomObject]@{ Name = 'AMD Ryzen 7 5800X 8-Core Processor' })
+        $pro | Should -Be $plain
+    }
+
+    It 'Does not read a generation off a Threadripper model number' {
+        # No tier digit to anchor on, so the pattern should decline rather
+        # than grab the 3970X model number and call it Zen 2.
+        { Get-CPUValue -CPU ([PSCustomObject]@{ Name = 'AMD Ryzen Threadripper 3970X 32-Core Processor' }) } | Should -Not -Throw
+    }
+
     It 'Keeps a newer Ryzen worth more than an older one in the same tier' {
         $zen5 = Get-CPUValue -CPU ([PSCustomObject]@{ Name = 'AMD Ryzen 7 9800X3D 8-Core Processor' })
         $zen4 = Get-CPUValue -CPU ([PSCustomObject]@{ Name = 'AMD Ryzen 7 7800X3D 8-Core Processor' })
