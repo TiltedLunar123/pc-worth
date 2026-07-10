@@ -18,10 +18,23 @@ function Get-CPUValue {
     # Core Ultra detection
     if ($name -match 'ULTRA\s*(\d)') { $intelGen = 14 + [int]$Matches[1] }
 
-    # Detect generation for AMD
+    # Detect generation for AMD. Ryzen series numbers run 1000-9000 while Intel
+    # counts 1-14, so the series digit is mapped onto the Intel generation it
+    # launched against before the shared multiplier below sees it.
     $amdGen = 0
-    if ($name -match 'RYZEN\s*\d\s*(\d)(\d)\d\d') {
-        $amdGen = [int]$Matches[1]
+    if ($name -match 'RYZEN\s*\d\s*(\d)\d{3}') {
+        $amdGen = switch ([int]$Matches[1]) {
+            1 { 7 }    # Zen, 2017
+            2 { 8 }    # Zen+, 2018
+            3 { 9 }    # Zen 2, 2019
+            4 { 10 }   # Zen 2 mobile/APU, 2020
+            5 { 11 }   # Zen 3, 2020
+            6 { 12 }   # Zen 3+ mobile, 2022
+            7 { 13 }   # Zen 4, 2022
+            8 { 14 }   # Zen 4 APU, 2024
+            9 { 15 }   # Zen 5, 2024
+            default { 0 }
+        }
     }
 
     # Base value by tier

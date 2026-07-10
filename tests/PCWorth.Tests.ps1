@@ -131,13 +131,35 @@ Describe 'Get-CPUValue' {
         $val | Should -Be 96
     }
 
-    It 'Values a Ryzen 7 5800X using the AMD generation digit' {
+    It 'Values a Ryzen 7 5800X on the Intel-equivalent generation scale' {
         $cpu = [PSCustomObject]@{ Name = 'AMD Ryzen 7 5800X 8-Core Processor' }
-        $val = Get-CPUValue -CPU $cpu
-        # Ryzen 7 base 200, AMD gen 5 -> multiplier 0.4. Yes, the curve is
-        # harsh on older AMD parts; that's the current model, not a bug.
-        $val | Should -BeGreaterThan 0
-        $val | Should -BeLessOrEqual 200
+        # Ryzen 7 base 200. The 5000 series is Zen 3, which maps to Intel's
+        # 11th gen, so the multiplier is 1.0 rather than the 0.4 the raw
+        # series digit used to buy.
+        Get-CPUValue -CPU $cpu | Should -Be 200
+    }
+
+    It 'Prices contemporaries from both vendors the same' {
+        # Each pair shipped against the other. Before the AMD series digit was
+        # normalized, the Ryzen side of every pair came in far under.
+        $pairs = @(
+            @{ Intel = 'Intel(R) Core(TM) i7-10700 CPU @ 2.90GHz'; Amd = 'AMD Ryzen 7 5800X 8-Core Processor' }
+            @{ Intel = 'Intel(R) Core(TM) i9-14900K';              Amd = 'AMD Ryzen 9 9950X 16-Core Processor' }
+            @{ Intel = 'Intel(R) Core(TM) i5-9400F CPU @ 2.90GHz'; Amd = 'AMD Ryzen 5 3600 6-Core Processor' }
+        )
+        foreach ($pair in $pairs) {
+            $intel = Get-CPUValue -CPU ([PSCustomObject]@{ Name = $pair.Intel })
+            $amd   = Get-CPUValue -CPU ([PSCustomObject]@{ Name = $pair.Amd })
+            $amd | Should -Be $intel -Because "$($pair.Amd) competed with $($pair.Intel)"
+        }
+    }
+
+    It 'Keeps a newer Ryzen worth more than an older one in the same tier' {
+        $zen5 = Get-CPUValue -CPU ([PSCustomObject]@{ Name = 'AMD Ryzen 7 9800X3D 8-Core Processor' })
+        $zen4 = Get-CPUValue -CPU ([PSCustomObject]@{ Name = 'AMD Ryzen 7 7800X3D 8-Core Processor' })
+        $zen3 = Get-CPUValue -CPU ([PSCustomObject]@{ Name = 'AMD Ryzen 7 5800X 8-Core Processor' })
+        $zen5 | Should -BeGreaterThan $zen4
+        $zen4 | Should -BeGreaterThan $zen3
     }
 
     It 'Recognizes Apple M-series silicon' {
