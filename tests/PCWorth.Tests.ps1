@@ -131,13 +131,50 @@ Describe 'Get-CPUValue' {
         $val | Should -Be 96
     }
 
-    It 'Values a Ryzen 7 5800X using the AMD generation digit' {
+    It 'Values a Ryzen 7 5800X on the Intel-equivalent generation scale' {
         $cpu = [PSCustomObject]@{ Name = 'AMD Ryzen 7 5800X 8-Core Processor' }
-        $val = Get-CPUValue -CPU $cpu
-        # Ryzen 7 base 200, AMD gen 5 -> multiplier 0.4. Yes, the curve is
-        # harsh on older AMD parts; that's the current model, not a bug.
-        $val | Should -BeGreaterThan 0
-        $val | Should -BeLessOrEqual 200
+        # Ryzen 7 base 200. The 5000 series is Zen 3, which maps to Intel's
+        # 11th gen, so the multiplier is 1.0 rather than the 0.4 the raw
+        # series digit used to buy.
+        Get-CPUValue -CPU $cpu | Should -Be 200
+    }
+
+    It 'Prices contemporaries from both vendors the same' {
+        # Each pair shipped against the other. Before the AMD series digit was
+        # normalized, the Ryzen side of every pair came in far under.
+        $pairs = @(
+            @{ Intel = 'Intel(R) Core(TM) i7-10700 CPU @ 2.90GHz'; Amd = 'AMD Ryzen 7 5800X 8-Core Processor' }
+            @{ Intel = 'Intel(R) Core(TM) i9-14900K';              Amd = 'AMD Ryzen 9 9950X 16-Core Processor' }
+            @{ Intel = 'Intel(R) Core(TM) i5-9400F CPU @ 2.90GHz'; Amd = 'AMD Ryzen 5 3600 6-Core Processor' }
+        )
+        foreach ($pair in $pairs) {
+            $intel = Get-CPUValue -CPU ([PSCustomObject]@{ Name = $pair.Intel })
+            $amd   = Get-CPUValue -CPU ([PSCustomObject]@{ Name = $pair.Amd })
+            $amd | Should -Be $intel -Because "$($pair.Amd) competed with $($pair.Intel)"
+        }
+    }
+
+    It 'Reads the generation through a PRO badge in the name' {
+        # The PRO token sits between the tier digit and the model number, so
+        # the old pattern missed it and the chip fell to the unknown-gen
+        # multiplier. A 5850U is Zen 3, same as any other 5000-series part.
+        $pro   = Get-CPUValue -CPU ([PSCustomObject]@{ Name = 'AMD Ryzen 7 PRO 5850U' })
+        $plain = Get-CPUValue -CPU ([PSCustomObject]@{ Name = 'AMD Ryzen 7 5800X 8-Core Processor' })
+        $pro | Should -Be $plain
+    }
+
+    It 'Does not read a generation off a Threadripper model number' {
+        # No tier digit to anchor on, so the pattern should decline rather
+        # than grab the 3970X model number and call it Zen 2.
+        { Get-CPUValue -CPU ([PSCustomObject]@{ Name = 'AMD Ryzen Threadripper 3970X 32-Core Processor' }) } | Should -Not -Throw
+    }
+
+    It 'Keeps a newer Ryzen worth more than an older one in the same tier' {
+        $zen5 = Get-CPUValue -CPU ([PSCustomObject]@{ Name = 'AMD Ryzen 7 9800X3D 8-Core Processor' })
+        $zen4 = Get-CPUValue -CPU ([PSCustomObject]@{ Name = 'AMD Ryzen 7 7800X3D 8-Core Processor' })
+        $zen3 = Get-CPUValue -CPU ([PSCustomObject]@{ Name = 'AMD Ryzen 7 5800X 8-Core Processor' })
+        $zen5 | Should -BeGreaterThan $zen4
+        $zen4 | Should -BeGreaterThan $zen3
     }
 
     It 'Recognizes Apple M-series silicon' {
@@ -477,6 +514,54 @@ Describe 'Get-GPUValue unknown discrete fallback' {
             IsIntegrated = $false
         }
         Get-GPUValue -GPU $gpu | Should -Be 50
+    }
+}
+
+Describe 'Intel Arc discrete detection' {
+    # The name every discrete Arc card reports ends in "Graphics", which is
+    # also what the Intel integrated pattern looks for. Only the A/B model
+    # number tells them apart.
+    $discreteNames = @(
+        'Intel(R) Arc(TM) A770 Graphics'
+        'Intel(R) Arc(TM) A750 Graphics'
+        'Intel(R) Arc(TM) A380 Graphics'
+        'Intel(R) Arc(TM) B580 Graphics'
+    )
+    $integratedNames = @(
+        'Intel(R) Arc(TM) Graphics'      # Core Ultra / Meteor Lake iGPU
+        'Intel(R) UHD Graphics 770'
+        'Intel(R) Iris(R) Xe Graphics'
+    )
+
+    It 'Flags <_> as discrete' -ForEach $discreteNames {
+        Get-GPUIntegratedFlag -Name $_ | Should -BeFalse
+    }
+
+    It 'Flags <_> as integrated' -ForEach $integratedNames {
+        Get-GPUIntegratedFlag -Name $_ | Should -BeTrue
+    }
+
+    It 'Prices an A770 off the table instead of zeroing it' {
+        $gpu = [PSCustomObject]@{
+            Name         = 'Intel(R) Arc(TM) A770 Graphics'
+            VRAMGB       = 16
+            IsIntegrated = (Get-GPUIntegratedFlag -Name 'Intel(R) Arc(TM) A770 Graphics')
+        }
+        Get-GPUValue -GPU $gpu | Should -Be 180
+    }
+
+    It 'Still zeroes the integrated Arc part' {
+        $gpu = [PSCustomObject]@{
+            Name         = 'Intel(R) Arc(TM) Graphics'
+            VRAMGB       = 0
+            IsIntegrated = (Get-GPUIntegratedFlag -Name 'Intel(R) Arc(TM) Graphics')
+        }
+        Get-GPUValue -GPU $gpu | Should -Be 0
+    }
+
+    It 'Prices a discrete Arc above the unknown-card default' {
+        $arc = [PSCustomObject]@{ Name = 'Intel(R) Arc(TM) B580 Graphics'; VRAMGB = 12; IsIntegrated = $false }
+        Get-GPUValue -GPU $arc | Should -BeGreaterThan 50
     }
 }
 

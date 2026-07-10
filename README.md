@@ -92,8 +92,8 @@ Uses Windows CIM/WMI queries (`Get-CimInstance`) to detect:
 
 ### Valuation
 Each component is valued independently:
-- **CPU**: Tier-based (i3/i5/i7/i9, Ryzen 3/5/7/9) with generation multiplier
-- **GPU**: Lookup table covering NVIDIA GTX/RTX and AMD RX series
+- **CPU**: Tier-based (i3/i5/i7/i9, Core Ultra 5/7/9, Ryzen 3/5/7/9) with a generation multiplier. Ryzen series numbers are mapped onto the Intel generation they launched against first, so a Ryzen 7 5800X and the i7-10700 it competed with price the same instead of the AMD part landing four bands too low.
+- **GPU**: Lookup table covering NVIDIA GTX/RTX, AMD RX, and discrete Intel Arc. Integrated graphics are worth $0, including the Arc iGPU in Core Ultra chips, which shares its name with the discrete cards.
 - **RAM**: Per-GB pricing by DDR generation
 - **Storage**: Per-GB pricing by media type
 

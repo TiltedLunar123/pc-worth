@@ -18,10 +18,23 @@ function Get-CPUValue {
     # Core Ultra detection
     if ($name -match 'ULTRA\s*(\d)') { $intelGen = 14 + [int]$Matches[1] }
 
-    # Detect generation for AMD
+    # Detect generation for AMD. Ryzen series numbers run 1000-9000 while Intel
+    # counts 1-14, so the series digit is mapped onto the Intel generation it
+    # launched against before the shared multiplier below sees it.
     $amdGen = 0
-    if ($name -match 'RYZEN\s*\d\s*(\d)(\d)\d\d') {
-        $amdGen = [int]$Matches[1]
+    if ($name -match 'RYZEN\s*(?:\d\s+)?(?:PRO\s+)?(\d)\d{3}') {
+        $amdGen = switch ([int]$Matches[1]) {
+            1 { 7 }    # Zen, 2017
+            2 { 8 }    # Zen+, 2018
+            3 { 9 }    # Zen 2, 2019
+            4 { 10 }   # Zen 2 mobile/APU, 2020
+            5 { 11 }   # Zen 3, 2020
+            6 { 12 }   # Zen 3+ mobile, 2022
+            7 { 13 }   # Zen 4, 2022
+            8 { 14 }   # Zen 4 APU, 2024
+            9 { 15 }   # Zen 5, 2024
+            default { 0 }
+        }
     }
 
     # Base value by tier
@@ -91,6 +104,12 @@ function Get-GPUValue {
         'RX\s*6700\s*XT' = 140; 'RX\s*6600\s*XT' = 110; 'RX\s*6600' = 90; 'RX\s*6500\s*XT' = 50
         # AMD RX 5000
         'RX\s*5700\s*XT' = 100; 'RX\s*5700' = 80; 'RX\s*5600\s*XT' = 70; 'RX\s*5500\s*XT' = 45
+        # Intel Arc (discrete only; the integrated part carries no model number).
+        # The reported name is "Intel(R) Arc(TM) A770 Graphics", so the branding
+        # suffix has to be skipped rather than matched as whitespace.
+        'ARC\b.*\bB580\b' = 220; 'ARC\b.*\bB570\b' = 180
+        'ARC\b.*\bA770\b' = 180; 'ARC\b.*\bA750\b' = 140
+        'ARC\b.*\bA580\b' = 100; 'ARC\b.*\bA380\b' = 70
         # Laptop GPUs (generally worth less - use mobile modifier later)
     }
 
