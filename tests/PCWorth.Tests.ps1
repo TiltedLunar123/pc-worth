@@ -292,6 +292,23 @@ Describe 'Get-BatteryPenalty' {
         $battery = [PSCustomObject]@{ HealthPercent = $null }
         Get-BatteryPenalty -Battery $battery | Should -Be 0
     }
+
+    It 'Charges the full penalty for a battery reporting 0% health' {
+        # 0 is falsy in PowerShell, so a truthiness guard sends the worst
+        # battery down the same path as a desktop with no battery at all.
+        $battery = [PSCustomObject]@{ HealthPercent = 0 }
+        Get-BatteryPenalty -Battery $battery | Should -Be -150
+    }
+
+    It 'Never scores a worse battery above a better one' {
+        $penalties = 0, 25, 45, 70, 95 | ForEach-Object {
+            Get-BatteryPenalty -Battery ([PSCustomObject]@{ HealthPercent = $_ })
+        }
+        # Walking up the health scale, the penalty must never get harsher.
+        for ($i = 1; $i -lt $penalties.Count; $i++) {
+            $penalties[$i] | Should -BeGreaterOrEqual $penalties[$i - 1]
+        }
+    }
 }
 
 Describe 'Get-RAMValue' {
@@ -442,6 +459,13 @@ Describe 'Get-PCValuation battery penalty integration' {
         $healthy.BatteryPenalty | Should -Be 0
         $healthy.MidEstimate | Should -Be 484
         ($healthy.MidEstimate - $degraded.MidEstimate) | Should -Be 100
+    }
+
+    It 'A flat battery lands below a merely degraded one' {
+        $flat     = Get-PCValuation -Specs (New-BatterySpecs -Health 0)
+        $degraded = Get-PCValuation -Specs (New-BatterySpecs -Health 45)
+        $flat.BatteryPenalty | Should -Be -150
+        $flat.MidEstimate | Should -BeLessThan $degraded.MidEstimate
     }
 }
 

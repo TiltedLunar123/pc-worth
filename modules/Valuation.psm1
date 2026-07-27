@@ -203,7 +203,10 @@ function Get-BatteryPenalty {
     [CmdletBinding()]
     param([PSCustomObject]$Battery)
 
-    if (-not $Battery -or -not $Battery.HealthPercent) { return 0 }
+    # Test HealthPercent against $null rather than for truthiness. A battery
+    # reporting 0% is the worst case on the ladder below, but 0 is falsy, so a
+    # truthiness check hands it the same "no battery here" exit a desktop takes.
+    if (-not $Battery -or $null -eq $Battery.HealthPercent) { return 0 }
 
     $health = $Battery.HealthPercent
     if ($health -ge 80) { return 0 }
