@@ -640,26 +640,41 @@ Describe 'Virtual and software display adapters' {
 
 Describe 'Primary GPU selection' {
     BeforeAll {
-        function New-FakeController {
-            param([string]$Name, [long]$Ram = 0)
-            [PSCustomObject]@{
-                Name                        = $Name
-                AdapterRAM                  = $Ram
-                CurrentHorizontalResolution = 1920
-                CurrentVerticalResolution   = 1080
+        # One default mock that dispatches on the class, rather than a
+        # -ParameterFilter mock for Win32_VideoController alone. Pester 5 let
+        # an unmatched partial mock fall through to the real command; Pester 6
+        # throws instead, so every other class Get-HardwareSpecs asks for has
+        # to be handled here. The controller list comes from $script:fakeGPUs
+        # so each test can set its own without redefining the mock.
+        function Set-FakeControllers {
+            param([string[]]$Names)
+            $script:fakeGPUs = @(
+                foreach ($n in $Names) {
+                    [PSCustomObject]@{
+                        Name                        = $n
+                        AdapterRAM                  = 0
+                        CurrentHorizontalResolution = 1920
+                        CurrentVerticalResolution   = 1080
+                    }
+                }
+            )
+        }
+    }
+
+    BeforeEach {
+        Mock Get-SafeCimInstance -ModuleName HardwareDetection -MockWith {
+            if ($ClassName -eq 'Win32_VideoController') {
+                $script:fakeGPUs
+            } else {
+                # Everything else keeps reading the real host, the way this
+                # suite already tests Get-HardwareSpecs end to end.
+                Get-CimInstance -ClassName $ClassName -ErrorAction SilentlyContinue
             }
         }
     }
 
     It 'Picks the real iGPU over a basic display adapter' {
-        Mock Get-SafeCimInstance -ModuleName HardwareDetection `
-            -ParameterFilter { $ClassName -eq 'Win32_VideoController' } `
-            -MockWith {
-                @(
-                    (New-FakeController -Name 'Microsoft Basic Display Adapter')
-                    (New-FakeController -Name 'Intel(R) UHD Graphics 770')
-                )
-            }
+        Set-FakeControllers 'Microsoft Basic Display Adapter', 'Intel(R) UHD Graphics 770'
 
         $specs = Get-HardwareSpecs
         $specs.GPU.Name | Should -Be 'Intel(R) UHD Graphics 770'
@@ -668,24 +683,14 @@ Describe 'Primary GPU selection' {
     }
 
     It 'Still prefers a real discrete card over both' {
-        Mock Get-SafeCimInstance -ModuleName HardwareDetection `
-            -ParameterFilter { $ClassName -eq 'Win32_VideoController' } `
-            -MockWith {
-                @(
-                    (New-FakeController -Name 'Microsoft Basic Display Adapter')
-                    (New-FakeController -Name 'Intel(R) UHD Graphics 770')
-                    (New-FakeController -Name 'NVIDIA GeForce RTX 4070')
-                )
-            }
+        Set-FakeControllers 'Microsoft Basic Display Adapter', 'Intel(R) UHD Graphics 770', 'NVIDIA GeForce RTX 4070'
 
         $specs = Get-HardwareSpecs
         $specs.GPU.Name | Should -Be 'NVIDIA GeForce RTX 4070'
     }
 
     It 'Keeps the virtual adapter in the list so the display row survives' {
-        Mock Get-SafeCimInstance -ModuleName HardwareDetection `
-            -ParameterFilter { $ClassName -eq 'Win32_VideoController' } `
-            -MockWith { ,(New-FakeController -Name 'Microsoft Basic Display Adapter') }
+        Set-FakeControllers 'Microsoft Basic Display Adapter'
 
         $specs = Get-HardwareSpecs
         $specs.AllGPUs.Count | Should -Be 1
