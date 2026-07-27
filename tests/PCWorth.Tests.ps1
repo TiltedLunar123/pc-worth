@@ -783,6 +783,37 @@ Describe 'Get-OnlineEstimate' {
         $r.Success     | Should -BeFalse
         $r.BlendedMid  | Should -Be $script:offline.MidEstimate
     }
+
+    It 'Names the timeout that PowerShell 7 actually throws' {
+        # -TimeoutSec on HttpClient cancels the task. It is not a WebException,
+        # so the 5.1-era catch never saw it and every timeout logged as a
+        # generic failure.
+        Mock Invoke-WebRequest -ModuleName OnlineLookup {
+            throw [System.Threading.Tasks.TaskCanceledException]::new('The request was canceled due to the configured HttpClient.Timeout')
+        }
+        $verbose = Get-OnlineEstimate -Specs (New-LookupSpecs) -OfflineValuation $script:offline -Verbose 4>&1 |
+                   Out-String
+        $verbose | Should -Match 'timed out after 10s'
+    }
+
+    It 'Falls back to the offline estimate on a timeout' {
+        Mock Invoke-WebRequest -ModuleName OnlineLookup {
+            throw [System.Threading.Tasks.TaskCanceledException]::new('canceled')
+        }
+        $r = Get-OnlineEstimate -Specs (New-LookupSpecs) -OfflineValuation $script:offline
+        $r.Success    | Should -BeFalse
+        $r.BlendedMid | Should -Be $script:offline.MidEstimate
+    }
+
+    It 'Reports a DNS or connection failure as a failure, not a timeout' {
+        Mock Invoke-WebRequest -ModuleName OnlineLookup {
+            throw [System.Net.Http.HttpRequestException]::new('No such host is known.')
+        }
+        $verbose = Get-OnlineEstimate -Specs (New-LookupSpecs) -OfflineValuation $script:offline -Verbose 4>&1 |
+                   Out-String
+        $verbose | Should -Match 'Online lookup failed'
+        $verbose | Should -Not -Match 'timed out'
+    }
 }
 
 Describe 'Write-PCReport' {
