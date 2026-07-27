@@ -138,7 +138,10 @@ function Get-HardwareSpecs {
         # AdapterRAM caps at 4GB for 32-bit field; try registry for real VRAM
         if ($vramGB -le 4 -and $gpu.Name -match 'NVIDIA|Radeon|GeForce|RTX|GTX|RX') {
             try {
-                $regPath = "HKLM:\SYSTEM\ControlSet001\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
+                # CurrentControlSet always points at the set Windows booted.
+                # ControlSet001 is usually the same key, but not after a Last
+                # Known Good boot, when the live set becomes 002.
+                $regPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
                 $subkeys = Get-ChildItem $regPath -ErrorAction SilentlyContinue
                 foreach ($key in $subkeys) {
                     $desc = (Get-ItemProperty $key.PSPath -ErrorAction SilentlyContinue).DriverDesc
