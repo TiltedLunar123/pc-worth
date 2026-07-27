@@ -799,4 +799,41 @@ Describe 'Write-PCReport' {
         $s.AgeYears = 0
         { Write-PCReport -Specs $s -Valuation (New-ReportValuation) -OnlineResult $null 6>&1 | Out-Null } | Should -Not -Throw
     }
+
+    It 'Reports 0% as health, not as charge' {
+        # Zero is a reading, not a gap in the data. A truthiness check fell
+        # through to the charge branch and hid the dead battery entirely.
+        $s = New-ReportSpecs
+        $s.Battery = [PSCustomObject]@{ HealthPercent = 0; ChargePercent = 100 }
+        $text = Get-ReportText -Specs $s -Valuation (New-ReportValuation) -OnlineResult $null
+        $text | Should -Match '0% health'
+        $text | Should -Not -Match '100% charge'
+    }
+
+    It 'Still falls back to charge when health is genuinely unavailable' {
+        $s = New-ReportSpecs
+        $s.Battery = [PSCustomObject]@{ HealthPercent = $null; ChargePercent = 64 }
+        $text = Get-ReportText -Specs $s -Valuation (New-ReportValuation) -OnlineResult $null
+        $text | Should -Match '64% charge'
+    }
+
+    It 'Colours a flat battery red instead of green' {
+        Mock Write-Host -ModuleName ReportFormatter { }
+        $s = New-ReportSpecs
+        $s.Battery = [PSCustomObject]@{ HealthPercent = 0; ChargePercent = 100 }
+        Write-PCReport -Specs $s -Valuation (New-ReportValuation) -OnlineResult $null
+
+        Should -Invoke Write-Host -ModuleName ReportFormatter -ParameterFilter {
+            $Object -eq '0% health' -and $ForegroundColor -eq 'Red'
+        }
+    }
+
+    It 'Keeps a healthy battery green' {
+        Mock Write-Host -ModuleName ReportFormatter { }
+        Write-PCReport -Specs (New-ReportSpecs) -Valuation (New-ReportValuation) -OnlineResult $null
+
+        Should -Invoke Write-Host -ModuleName ReportFormatter -ParameterFilter {
+            $Object -eq '88% health' -and $ForegroundColor -eq 'Green'
+        }
+    }
 }

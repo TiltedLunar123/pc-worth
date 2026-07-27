@@ -103,13 +103,17 @@ function Write-PCReport {
 
     # Battery
     if ($Specs.Battery) {
-        $batStr = if ($Specs.Battery.HealthPercent) {
+        # Health of 0 is a real reading, not a missing one, so these three
+        # checks test against $null. On truthiness a flat battery printed its
+        # charge instead of its health and came out green.
+        $hasHealth = $null -ne $Specs.Battery.HealthPercent
+        $batStr = if ($hasHealth) {
             "$($Specs.Battery.HealthPercent)% health"
         } else {
             "$($Specs.Battery.ChargePercent)% charge"
         }
-        $batColor = if ($Specs.Battery.HealthPercent -and $Specs.Battery.HealthPercent -lt 50) { 'Red' }
-                    elseif ($Specs.Battery.HealthPercent -and $Specs.Battery.HealthPercent -lt 80) { 'Yellow' }
+        $batColor = if ($hasHealth -and $Specs.Battery.HealthPercent -lt 50) { 'Red' }
+                    elseif ($hasHealth -and $Specs.Battery.HealthPercent -lt 80) { 'Yellow' }
                     else { 'Green' }
         Write-SpecRow "Battery" $batStr $batColor
     }
