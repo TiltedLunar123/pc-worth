@@ -292,6 +292,23 @@ Describe 'Get-BatteryPenalty' {
         $battery = [PSCustomObject]@{ HealthPercent = $null }
         Get-BatteryPenalty -Battery $battery | Should -Be 0
     }
+
+    It 'Charges the full penalty for a battery reporting 0% health' {
+        # 0 is falsy in PowerShell, so a truthiness guard sends the worst
+        # battery down the same path as a desktop with no battery at all.
+        $battery = [PSCustomObject]@{ HealthPercent = 0 }
+        Get-BatteryPenalty -Battery $battery | Should -Be -150
+    }
+
+    It 'Never scores a worse battery above a better one' {
+        $penalties = 0, 25, 45, 70, 95 | ForEach-Object {
+            Get-BatteryPenalty -Battery ([PSCustomObject]@{ HealthPercent = $_ })
+        }
+        # Walking up the health scale, the penalty must never get harsher.
+        for ($i = 1; $i -lt $penalties.Count; $i++) {
+            $penalties[$i] | Should -BeGreaterOrEqual $penalties[$i - 1]
+        }
+    }
 }
 
 Describe 'Get-RAMValue' {
@@ -443,6 +460,13 @@ Describe 'Get-PCValuation battery penalty integration' {
         $healthy.MidEstimate | Should -Be 484
         ($healthy.MidEstimate - $degraded.MidEstimate) | Should -Be 100
     }
+
+    It 'A flat battery lands below a merely degraded one' {
+        $flat     = Get-PCValuation -Specs (New-BatterySpecs -Health 0)
+        $degraded = Get-PCValuation -Specs (New-BatterySpecs -Health 45)
+        $flat.BatteryPenalty | Should -Be -150
+        $flat.MidEstimate | Should -BeLessThan $degraded.MidEstimate
+    }
 }
 
 Describe 'Get-AgeDepreciation past year three' {
@@ -565,6 +589,119 @@ Describe 'Intel Arc discrete detection' {
     }
 }
 
+Describe 'Virtual and software display adapters' {
+    # None of these is integrated graphics, so the integrated check alone
+    # leaves every one of them looking like a discrete card.
+    $virtualNames = @(
+        'Microsoft Basic Display Adapter'
+        'Microsoft Basic Render Driver'
+        'Microsoft Remote Display Adapter'
+        'Microsoft Hyper-V Video'
+        'VMware SVGA 3D'
+        'VirtualBox Graphics Adapter'
+        'Citrix Indirect Display Adapter'
+        'Parsec Virtual Display Adapter'
+        'DisplayLink USB Device'
+        'Standard VGA Graphics Adapter'
+    )
+    $realNames = @(
+        'NVIDIA GeForce RTX 4070'
+        'NVIDIA GeForce RTX 3050 Laptop GPU'
+        'AMD Radeon RX 7800 XT'
+        'Intel(R) Arc(TM) A770 Graphics'
+        'Intel(R) UHD Graphics 770'
+        'AMD Radeon(TM) Vega 8 Graphics'
+    )
+
+    It 'Flags <_> as virtual' -ForEach $virtualNames {
+        Get-GPUVirtualFlag -Name $_ | Should -BeTrue
+    }
+
+    It 'Leaves <_> alone' -ForEach $realNames {
+        Get-GPUVirtualFlag -Name $_ | Should -BeFalse
+    }
+
+    It 'Values <_> at zero instead of the unknown-card default' -ForEach $virtualNames {
+        $gpu = [PSCustomObject]@{
+            Name         = $_
+            VRAMGB       = 0
+            IsIntegrated = (Get-GPUIntegratedFlag -Name $_)
+            IsVirtual    = $true
+        }
+        Get-GPUValue -GPU $gpu | Should -Be 0
+    }
+
+    It 'Still prices a real card that carries no IsVirtual property' {
+        # Older callers build the GPU object without the new field.
+        $gpu = [PSCustomObject]@{ Name = 'NVIDIA GeForce RTX 4070'; VRAMGB = 12; IsIntegrated = $false }
+        Get-GPUValue -GPU $gpu | Should -Be 280
+    }
+}
+
+Describe 'Primary GPU selection' {
+    BeforeAll {
+        # One default mock that dispatches on the class, rather than a
+        # -ParameterFilter mock for Win32_VideoController alone. Pester 5 let
+        # an unmatched partial mock fall through to the real command; Pester 6
+        # throws instead, so every other class Get-HardwareSpecs asks for has
+        # to be handled here. The controller list comes from $script:fakeGPUs
+        # so each test can set its own without redefining the mock.
+        function Set-FakeControllers {
+            param([string[]]$Names)
+            $script:fakeGPUs = @(
+                foreach ($n in $Names) {
+                    [PSCustomObject]@{
+                        Name                        = $n
+                        AdapterRAM                  = 0
+                        CurrentHorizontalResolution = 1920
+                        CurrentVerticalResolution   = 1080
+                    }
+                }
+            )
+        }
+    }
+
+    BeforeEach {
+        Mock Get-SafeCimInstance -ModuleName HardwareDetection -MockWith {
+            if ($ClassName -eq 'Win32_VideoController') {
+                $script:fakeGPUs
+            } else {
+                # Everything else keeps reading the real host, the way this
+                # suite already tests Get-HardwareSpecs end to end.
+                Get-CimInstance -ClassName $ClassName -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    It 'Picks the real iGPU over a basic display adapter' {
+        Set-FakeControllers 'Microsoft Basic Display Adapter', 'Intel(R) UHD Graphics 770'
+
+        $specs = Get-HardwareSpecs
+        $specs.GPU.Name | Should -Be 'Intel(R) UHD Graphics 770'
+        $specs.GPU.IsIntegrated | Should -BeTrue
+        Get-GPUValue -GPU $specs.GPU | Should -Be 0
+    }
+
+    It 'Still prefers a real discrete card over both' {
+        Set-FakeControllers 'Microsoft Basic Display Adapter', 'Intel(R) UHD Graphics 770', 'NVIDIA GeForce RTX 4070'
+
+        $specs = Get-HardwareSpecs
+        $specs.GPU.Name | Should -Be 'NVIDIA GeForce RTX 4070'
+    }
+
+    It 'Keeps the virtual adapter in the list so the display row survives' {
+        Set-FakeControllers 'Microsoft Basic Display Adapter'
+
+        $specs = Get-HardwareSpecs
+        $specs.AllGPUs.Count | Should -Be 1
+        $specs.GPU.Name | Should -Be 'Microsoft Basic Display Adapter'
+        $specs.DisplayRes | Should -Be '1920x1080'
+        # It is still the primary because nothing else was reported, but it
+        # must not add $50 of imaginary graphics card to the estimate.
+        Get-GPUValue -GPU $specs.GPU | Should -Be 0
+    }
+}
+
 Describe 'Get-OnlineEstimate' {
     BeforeAll {
         # Specs with placeholder manufacturer/model that the query builder
@@ -650,6 +787,37 @@ Describe 'Get-OnlineEstimate' {
         $r = Get-OnlineEstimate -Specs (New-LookupSpecs) -OfflineValuation $script:offline
         $r.Success     | Should -BeFalse
         $r.BlendedMid  | Should -Be $script:offline.MidEstimate
+    }
+
+    It 'Names the timeout that PowerShell 7 actually throws' {
+        # -TimeoutSec on HttpClient cancels the task. It is not a WebException,
+        # so the 5.1-era catch never saw it and every timeout logged as a
+        # generic failure.
+        Mock Invoke-WebRequest -ModuleName OnlineLookup {
+            throw [System.Threading.Tasks.TaskCanceledException]::new('The request was canceled due to the configured HttpClient.Timeout')
+        }
+        $verbose = Get-OnlineEstimate -Specs (New-LookupSpecs) -OfflineValuation $script:offline -Verbose 4>&1 |
+                   Out-String
+        $verbose | Should -Match 'timed out after 10s'
+    }
+
+    It 'Falls back to the offline estimate on a timeout' {
+        Mock Invoke-WebRequest -ModuleName OnlineLookup {
+            throw [System.Threading.Tasks.TaskCanceledException]::new('canceled')
+        }
+        $r = Get-OnlineEstimate -Specs (New-LookupSpecs) -OfflineValuation $script:offline
+        $r.Success    | Should -BeFalse
+        $r.BlendedMid | Should -Be $script:offline.MidEstimate
+    }
+
+    It 'Reports a DNS or connection failure as a failure, not a timeout' {
+        Mock Invoke-WebRequest -ModuleName OnlineLookup {
+            throw [System.Net.Http.HttpRequestException]::new('No such host is known.')
+        }
+        $verbose = Get-OnlineEstimate -Specs (New-LookupSpecs) -OfflineValuation $script:offline -Verbose 4>&1 |
+                   Out-String
+        $verbose | Should -Match 'Online lookup failed'
+        $verbose | Should -Not -Match 'timed out'
     }
 }
 
@@ -774,5 +942,42 @@ Describe 'Write-PCReport' {
         $s.Battery  = $null
         $s.AgeYears = 0
         { Write-PCReport -Specs $s -Valuation (New-ReportValuation) -OnlineResult $null 6>&1 | Out-Null } | Should -Not -Throw
+    }
+
+    It 'Reports 0% as health, not as charge' {
+        # Zero is a reading, not a gap in the data. A truthiness check fell
+        # through to the charge branch and hid the dead battery entirely.
+        $s = New-ReportSpecs
+        $s.Battery = [PSCustomObject]@{ HealthPercent = 0; ChargePercent = 100 }
+        $text = Get-ReportText -Specs $s -Valuation (New-ReportValuation) -OnlineResult $null
+        $text | Should -Match '0% health'
+        $text | Should -Not -Match '100% charge'
+    }
+
+    It 'Still falls back to charge when health is genuinely unavailable' {
+        $s = New-ReportSpecs
+        $s.Battery = [PSCustomObject]@{ HealthPercent = $null; ChargePercent = 64 }
+        $text = Get-ReportText -Specs $s -Valuation (New-ReportValuation) -OnlineResult $null
+        $text | Should -Match '64% charge'
+    }
+
+    It 'Colours a flat battery red instead of green' {
+        Mock Write-Host -ModuleName ReportFormatter { }
+        $s = New-ReportSpecs
+        $s.Battery = [PSCustomObject]@{ HealthPercent = 0; ChargePercent = 100 }
+        Write-PCReport -Specs $s -Valuation (New-ReportValuation) -OnlineResult $null
+
+        Should -Invoke Write-Host -ModuleName ReportFormatter -ParameterFilter {
+            $Object -eq '0% health' -and $ForegroundColor -eq 'Red'
+        }
+    }
+
+    It 'Keeps a healthy battery green' {
+        Mock Write-Host -ModuleName ReportFormatter { }
+        Write-PCReport -Specs (New-ReportSpecs) -Valuation (New-ReportValuation) -OnlineResult $null
+
+        Should -Invoke Write-Host -ModuleName ReportFormatter -ParameterFilter {
+            $Object -eq '88% health' -and $ForegroundColor -eq 'Green'
+        }
     }
 }

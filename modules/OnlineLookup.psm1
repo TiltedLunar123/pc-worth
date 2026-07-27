@@ -84,7 +84,13 @@ function Get-OnlineEstimate {
         } else {
             Write-Verbose "  Not enough sold listings found ($($prices.Count)), using offline estimate."
         }
+    } catch [System.Threading.Tasks.TaskCanceledException] {
+        # PowerShell 6+ runs Invoke-WebRequest on HttpClient, which cancels the
+        # task on -TimeoutSec rather than raising a WebException. Without this
+        # branch the timeout is indistinguishable from any other failure.
+        Write-Verbose "  Online lookup timed out after 10s"
     } catch [System.Net.WebException] {
+        # Windows PowerShell 5.1 still throws this one.
         if ($_.Exception.Status -eq [System.Net.WebExceptionStatus]::Timeout) {
             Write-Verbose "  Online lookup timed out after 10s"
         } else {

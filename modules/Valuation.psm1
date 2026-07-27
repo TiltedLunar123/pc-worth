@@ -72,7 +72,10 @@ function Get-GPUValue {
     [CmdletBinding()]
     param([PSCustomObject]$GPU)
 
-    if (-not $GPU -or $GPU.IsIntegrated) { return 0 }
+    # A virtual, remote or USB display adapter is a driver, not a card. It is
+    # not integrated graphics either, so it needs its own exit or it lands on
+    # the $50 unknown-discrete default at the bottom of this function.
+    if (-not $GPU -or $GPU.IsIntegrated -or $GPU.IsVirtual) { return 0 }
 
     $name = $GPU.Name.ToUpper()
 
@@ -203,7 +206,10 @@ function Get-BatteryPenalty {
     [CmdletBinding()]
     param([PSCustomObject]$Battery)
 
-    if (-not $Battery -or -not $Battery.HealthPercent) { return 0 }
+    # Test HealthPercent against $null rather than for truthiness. A battery
+    # reporting 0% is the worst case on the ladder below, but 0 is falsy, so a
+    # truthiness check hands it the same "no battery here" exit a desktop takes.
+    if (-not $Battery -or $null -eq $Battery.HealthPercent) { return 0 }
 
     $health = $Battery.HealthPercent
     if ($health -ge 80) { return 0 }
