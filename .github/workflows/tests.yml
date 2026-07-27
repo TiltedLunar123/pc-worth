@@ -13,11 +13,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Pester 5
+      - name: Install Pester
         shell: pwsh
         run: |
+          # -MinimumVersion is a floor, not a pin: -Force installs whatever is
+          # newest on the gallery, which has been Pester 6 since it shipped.
+          # The suite is kept working on 5.5+ and 6.x, so this stays unpinned
+          # on purpose, but the version has to show up in the log. A local 5.x
+          # run going green while this job goes red is otherwise a mystery.
           Install-Module -Name Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck
           Import-Module Pester -MinimumVersion 5.5.0
+          "Running Pester $((Get-Module Pester).Version)"
 
       - name: Run Pester
         shell: pwsh
