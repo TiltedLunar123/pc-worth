@@ -26,6 +26,19 @@ function Get-GPUIntegratedFlag {
     return [bool]($Name -match 'Intel.*(?:UHD|HD|Iris|Graphics)|AMD.*Radeon.*Graphics$|Vega.*Graphics')
 }
 
+function Get-GPUVirtualFlag {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Name)
+
+    # Win32_VideoController lists software, remote and USB display adapters
+    # next to real cards. None of them is integrated graphics, so the
+    # integrated check above leaves them looking discrete, which is worth $50
+    # of unknown-card money and outranks the real iGPU when the primary GPU
+    # gets picked. A machine sitting on the Microsoft Basic Display Adapter
+    # has no driver loaded, not a mystery graphics card.
+    return [bool]($Name -match 'Basic Display|Basic Render|Remote Display|RDPDD|RDP Encoder|Citrix|VMware|VirtualBox|Hyper-V|Parsec|DisplayLink|Virtual Display|Standard VGA|QXL|VNC')
+}
+
 function Get-UnknownCpu {
     [PSCustomObject]@{
         Name         = "Unknown"
@@ -144,17 +157,22 @@ function Get-HardwareSpecs {
 
         $gpuName = if ($gpu.Name) { $gpu.Name.Trim() } else { "Unknown" }
         $isIntegrated = Get-GPUIntegratedFlag -Name $gpuName
+        $isVirtual    = Get-GPUVirtualFlag    -Name $gpuName
         $gpuList += [PSCustomObject]@{
             Name                        = $gpuName
             VRAMGB                      = $vramGB
             IsIntegrated                = $isIntegrated
+            IsVirtual                   = $isVirtual
             CurrentHorizontalResolution = $gpu.CurrentHorizontalResolution
             CurrentVerticalResolution   = $gpu.CurrentVerticalResolution
         }
     }
 
-    # Prefer discrete GPU if available
-    $primaryGPU = $gpuList | Where-Object { -not $_.IsIntegrated } | Select-Object -First 1
+    # Real discrete card first, then real integrated graphics, and a virtual
+    # adapter only when it is all that was reported. Virtual entries stay in
+    # $gpuList either way, because the display resolution is read off it.
+    $primaryGPU = $gpuList | Where-Object { -not $_.IsIntegrated -and -not $_.IsVirtual } | Select-Object -First 1
+    if (-not $primaryGPU) { $primaryGPU = $gpuList | Where-Object { -not $_.IsVirtual } | Select-Object -First 1 }
     if (-not $primaryGPU) { $primaryGPU = $gpuList | Select-Object -First 1 }
 
     # --- Storage ---
@@ -300,4 +318,4 @@ function Get-HardwareSpecs {
     return $specs
 }
 
-Export-ModuleMember -Function Get-HardwareSpecs, Get-SafeCimInstance, Get-UnknownCpu, Get-UnknownRam, Get-GPUIntegratedFlag
+Export-ModuleMember -Function Get-HardwareSpecs, Get-SafeCimInstance, Get-UnknownCpu, Get-UnknownRam, Get-GPUIntegratedFlag, Get-GPUVirtualFlag

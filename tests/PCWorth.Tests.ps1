@@ -589,6 +589,114 @@ Describe 'Intel Arc discrete detection' {
     }
 }
 
+Describe 'Virtual and software display adapters' {
+    # None of these is integrated graphics, so the integrated check alone
+    # leaves every one of them looking like a discrete card.
+    $virtualNames = @(
+        'Microsoft Basic Display Adapter'
+        'Microsoft Basic Render Driver'
+        'Microsoft Remote Display Adapter'
+        'Microsoft Hyper-V Video'
+        'VMware SVGA 3D'
+        'VirtualBox Graphics Adapter'
+        'Citrix Indirect Display Adapter'
+        'Parsec Virtual Display Adapter'
+        'DisplayLink USB Device'
+        'Standard VGA Graphics Adapter'
+    )
+    $realNames = @(
+        'NVIDIA GeForce RTX 4070'
+        'NVIDIA GeForce RTX 3050 Laptop GPU'
+        'AMD Radeon RX 7800 XT'
+        'Intel(R) Arc(TM) A770 Graphics'
+        'Intel(R) UHD Graphics 770'
+        'AMD Radeon(TM) Vega 8 Graphics'
+    )
+
+    It 'Flags <_> as virtual' -ForEach $virtualNames {
+        Get-GPUVirtualFlag -Name $_ | Should -BeTrue
+    }
+
+    It 'Leaves <_> alone' -ForEach $realNames {
+        Get-GPUVirtualFlag -Name $_ | Should -BeFalse
+    }
+
+    It 'Values <_> at zero instead of the unknown-card default' -ForEach $virtualNames {
+        $gpu = [PSCustomObject]@{
+            Name         = $_
+            VRAMGB       = 0
+            IsIntegrated = (Get-GPUIntegratedFlag -Name $_)
+            IsVirtual    = $true
+        }
+        Get-GPUValue -GPU $gpu | Should -Be 0
+    }
+
+    It 'Still prices a real card that carries no IsVirtual property' {
+        # Older callers build the GPU object without the new field.
+        $gpu = [PSCustomObject]@{ Name = 'NVIDIA GeForce RTX 4070'; VRAMGB = 12; IsIntegrated = $false }
+        Get-GPUValue -GPU $gpu | Should -Be 280
+    }
+}
+
+Describe 'Primary GPU selection' {
+    BeforeAll {
+        function New-FakeController {
+            param([string]$Name, [long]$Ram = 0)
+            [PSCustomObject]@{
+                Name                        = $Name
+                AdapterRAM                  = $Ram
+                CurrentHorizontalResolution = 1920
+                CurrentVerticalResolution   = 1080
+            }
+        }
+    }
+
+    It 'Picks the real iGPU over a basic display adapter' {
+        Mock Get-SafeCimInstance -ModuleName HardwareDetection `
+            -ParameterFilter { $ClassName -eq 'Win32_VideoController' } `
+            -MockWith {
+                @(
+                    (New-FakeController -Name 'Microsoft Basic Display Adapter')
+                    (New-FakeController -Name 'Intel(R) UHD Graphics 770')
+                )
+            }
+
+        $specs = Get-HardwareSpecs
+        $specs.GPU.Name | Should -Be 'Intel(R) UHD Graphics 770'
+        $specs.GPU.IsIntegrated | Should -BeTrue
+        Get-GPUValue -GPU $specs.GPU | Should -Be 0
+    }
+
+    It 'Still prefers a real discrete card over both' {
+        Mock Get-SafeCimInstance -ModuleName HardwareDetection `
+            -ParameterFilter { $ClassName -eq 'Win32_VideoController' } `
+            -MockWith {
+                @(
+                    (New-FakeController -Name 'Microsoft Basic Display Adapter')
+                    (New-FakeController -Name 'Intel(R) UHD Graphics 770')
+                    (New-FakeController -Name 'NVIDIA GeForce RTX 4070')
+                )
+            }
+
+        $specs = Get-HardwareSpecs
+        $specs.GPU.Name | Should -Be 'NVIDIA GeForce RTX 4070'
+    }
+
+    It 'Keeps the virtual adapter in the list so the display row survives' {
+        Mock Get-SafeCimInstance -ModuleName HardwareDetection `
+            -ParameterFilter { $ClassName -eq 'Win32_VideoController' } `
+            -MockWith { ,(New-FakeController -Name 'Microsoft Basic Display Adapter') }
+
+        $specs = Get-HardwareSpecs
+        $specs.AllGPUs.Count | Should -Be 1
+        $specs.GPU.Name | Should -Be 'Microsoft Basic Display Adapter'
+        $specs.DisplayRes | Should -Be '1920x1080'
+        # It is still the primary because nothing else was reported, but it
+        # must not add $50 of imaginary graphics card to the estimate.
+        Get-GPUValue -GPU $specs.GPU | Should -Be 0
+    }
+}
+
 Describe 'Get-OnlineEstimate' {
     BeforeAll {
         # Specs with placeholder manufacturer/model that the query builder

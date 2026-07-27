@@ -72,7 +72,10 @@ function Get-GPUValue {
     [CmdletBinding()]
     param([PSCustomObject]$GPU)
 
-    if (-not $GPU -or $GPU.IsIntegrated) { return 0 }
+    # A virtual, remote or USB display adapter is a driver, not a card. It is
+    # not integrated graphics either, so it needs its own exit or it lands on
+    # the $50 unknown-discrete default at the bottom of this function.
+    if (-not $GPU -or $GPU.IsIntegrated -or $GPU.IsVirtual) { return 0 }
 
     $name = $GPU.Name.ToUpper()
 
