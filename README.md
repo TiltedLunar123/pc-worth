@@ -84,7 +84,7 @@ irm https://raw.githubusercontent.com/TiltedLunar123/pc-worth/master/Get-PCWorth
 Uses Windows CIM/WMI queries (`Get-CimInstance`) to detect:
 - CPU model, cores, threads, clock speed
 - RAM total, speed, DDR generation
-- GPU model, VRAM (discrete vs integrated)
+- GPU model, VRAM (discrete vs integrated vs virtual)
 - Storage type (NVMe/SSD/HDD), capacity, health
 - System type (laptop/desktop via chassis type)
 - Battery health (design vs current capacity)
@@ -93,13 +93,13 @@ Uses Windows CIM/WMI queries (`Get-CimInstance`) to detect:
 ### Valuation
 Each component is valued independently:
 - **CPU**: Tier-based (i3/i5/i7/i9, Core Ultra 5/7/9, Ryzen 3/5/7/9) with a generation multiplier. Ryzen series numbers are mapped onto the Intel generation they launched against first, so a Ryzen 7 5800X and the i7-10700 it competed with price the same instead of the AMD part landing four bands too low.
-- **GPU**: Lookup table covering NVIDIA GTX/RTX, AMD RX, and discrete Intel Arc. Integrated graphics are worth $0, including the Arc iGPU in Core Ultra chips, which shares its name with the discrete cards.
+- **GPU**: Lookup table covering NVIDIA GTX/RTX, AMD RX, and discrete Intel Arc. Integrated graphics are worth $0, including the Arc iGPU in Core Ultra chips, which shares its name with the discrete cards. Software and remote display adapters (Microsoft Basic Display Adapter, Hyper-V, VMware, VirtualBox, Citrix, Parsec, DisplayLink) are worth $0 too, and a real card outranks them when the primary GPU is picked, so a machine running without its graphics driver is not credited with a mystery card.
 - **RAM**: Per-GB pricing by DDR generation
 - **Storage**: Per-GB pricing by media type
 
 Then adjustments:
 - **Age depreciation**: multiplicative on the remaining value (not the original). Year 1 retains 70%, year 2 multiplies that by 0.80, year 3 by 0.85, each year beyond by 0.90, floored at 15% of the original. So a 3-year-old system retains roughly 48% of its component total, not 35%.
-- **Battery penalty**: -$50 to -$150 for degraded batteries
+- **Battery penalty**: -$50 below 80% health, -$100 below 60%, -$150 below 40%. A battery reporting 0% is a reading, not a missing one, so it takes the full -$150 rather than being read as "no battery fitted".
 - **Portability bonus**: +10% for laptops
 
 ### Online Lookup
