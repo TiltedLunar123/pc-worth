@@ -2,14 +2,14 @@
 
 A PowerShell script that auto-detects your PC's hardware and estimates its current resale value.
 
-## Features
+It reads the hardware itself, so there is nothing to fill in. CPU, GPU, RAM, storage,
+battery health and system age all come from CIM queries, get priced component by
+component against a built-in table, and then get adjusted for age and for whether the
+machine is a laptop. Everything works offline. If you leave the online step on it also
+checks eBay sold listings and blends that in.
 
-- **Auto-detection** - CPU, GPU, RAM, storage, battery health, system age, and more
-- **Built-in pricing** - Offline valuation using component-level pricing database
-- **Online lookup** - Optional eBay sold listings check to refine the estimate
-- **Laptop aware** - Detects battery health, applies portability bonus
-- **Age depreciation** - Realistic depreciation curves based on system age
-- **Colored report** - Clean terminal output with component breakdown
+The pricing table is my own and it is opinionated. See the valuation notes below if you
+want to argue with it.
 
 ## Quick Start
 
@@ -113,11 +113,8 @@ Optionally queries eBay sold listings for similar systems, averages the prices (
 
 ## Contributing
 
-1. Fork it
-2. Create your feature branch (`git checkout -b feature/my-feature`)
-3. Commit your changes (`git commit -m 'Add my feature'`)
-4. Push to the branch (`git push origin feature/my-feature`)
-5. Open a Pull Request
+The prices go stale, so corrections to the tables in `modules/` are the most useful
+thing to send. Open an issue or a PR.
 
 ## License
 
