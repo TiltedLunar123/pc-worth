@@ -40,43 +40,14 @@ irm https://raw.githubusercontent.com/TiltedLunar123/pc-worth/master/Get-PCWorth
 .\Get-PCWorth.ps1 -Verbose
 ```
 
-## Sample Output
+## Sample output
 
-```
-  ══════════════════════════════════════════════════════
+A real offline run, on the laptop I wrote it on:
 
-      PC WORTH ESTIMATOR v1.0
+![Terminal output: PC Worth Estimator v1.0 reporting an Acer Predator PHN16-73 laptop under a year old. Hardware specs list an Intel Core Ultra 9 275HX, an RTX 5070 Ti Laptop GPU, 32 GB of DDR5, a 954 GB NVMe SSD, a 2560x1600 display and Windows 11. The value breakdown gives 490 dollars for the CPU, 400 for the GPU, 96 for RAM and 57 for storage, then subtracts 104 for age and adds 94 as a portability bonus, for an estimated value of 878 to 1188 dollars.](docs/report.png)
 
-  ══════════════════════════════════════════════════════
-
-  SYSTEM: Acer Nitro AN515-58 (Laptop)
-  AGE:    ~2 years (Manufactured: 2024-03)
-
-  HARDWARE SPECS
-  ────────────────────────────────────────────────────
-  CPU         Intel Core i7-12700H (14C/20T @ 4.7GHz)
-  GPU         NVIDIA GeForce RTX 3050 Ti (4GB)
-  RAM         16 GB DDR5 @ 4800 MHz
-  Storage     512 GB NVMe SSD
-  Display     1920x1080
-  Battery     82% health
-  OS          Windows 11 Home
-
-  VALUE BREAKDOWN
-  ────────────────────────────────────────────────────
-  CPU ................    $240
-  GPU ................     $90
-  RAM ................     $48
-  Storage ............     $31
-  Age depreciation ...    -$71
-  Portability bonus ..    +$28
-                         ────────
-  ESTIMATED VALUE:  $280 - $380
-
-  Online check: ~$320 (eBay Sold Listings)
-
-  ══════════════════════════════════════════════════════
-```
+With the online step left on there is one more line, blending in what comparable
+machines actually sold for on eBay.
 
 ## How It Works
 
